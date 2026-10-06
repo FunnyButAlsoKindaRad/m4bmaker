@@ -139,6 +139,31 @@ def build_parser() -> argparse.ArgumentParser:
             "Use with --title, --author, --narrator to supply values non-interactively."
         ),
     )
+    parser.add_argument(
+        "--audnexus-asin",
+        default=None,
+        metavar="ASIN",
+        help="Audnexus ASIN to fetch metadata and chapters.",
+    )
+    parser.add_argument(
+        "--chapter-offset",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="Offset in seconds to shift API-provided chapter timestamps.",
+    )
+    parser.add_argument(
+        "--loudnorm",
+        action="store_true",
+        default=False,
+        help="Apply EBU R128 volume normalization via ffmpeg loudnorm filter.",
+    )
+    parser.add_argument(
+        "--faststart",
+        action="store_true",
+        default=False,
+        help="Apply -movflags faststart during conversion.",
+    )
 
     return parser
 

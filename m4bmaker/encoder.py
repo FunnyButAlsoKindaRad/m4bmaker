@@ -116,6 +116,8 @@ def encode(
     bitrate: str,
     channels: int,
     ffmpeg: str,
+    loudnorm: bool = False,
+    faststart: bool = False,
     total_ms: int = 0,
     sample_rate: int | None = None,
     progress_callback: Callable[[float], None] | None = None,
@@ -183,6 +185,9 @@ def encode(
             "attached_pic",
         ]
 
+    if loudnorm:
+        cmd += ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"]
+
     cmd += [
         "-c:a",
         "aac",
@@ -195,8 +200,13 @@ def encode(
         "stik=2",  # iTunes media type: Audiobook (required by Apple Books)
         "-brand",
         "M4B ",  # ftyp major brand — required for iOS Books to recognise as audiobook
-        "-movflags",
-        "+faststart",  # optimise for streaming
+    ]
+    if faststart:
+        cmd += [
+            "-movflags",
+            "+faststart",  # optimise for streaming
+        ]
+    cmd += [
         "-progress",
         "pipe:1",  # write progress key=value pairs to stdout
         "-nostdin",  # do not read from stdin

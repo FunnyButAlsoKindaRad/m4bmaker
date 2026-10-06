@@ -254,6 +254,8 @@ class TestEncodeCommandConstruction:
         cover: Path | None = None,
         bitrate: str = "96k",
         channels: int = 1,
+        loudnorm: bool = False,
+        faststart: bool = False,
     ) -> list[str]:
         """Run encode() with a mocked Popen and return the captured command."""
         concat, meta, _cover, output = _make_paths(tmp_path)
@@ -265,7 +267,7 @@ class TestEncodeCommandConstruction:
             return _popen_mock()
 
         with patch("m4bmaker.encoder.subprocess.Popen", side_effect=_fake_popen):
-            encode(concat, meta, cover, output, bitrate, channels, "ffmpeg")
+            encode(concat, meta, cover, output, bitrate, channels, "ffmpeg", loudnorm=loudnorm, faststart=faststart)
 
         return captured[0]
 
@@ -320,9 +322,19 @@ class TestEncodeCommandConstruction:
         assert cmd[idx_c + 1] == "1"
 
     def test_faststart_flag_present(self, tmp_path: Path) -> None:
-        cmd = self._run_encode(tmp_path)
+        cmd = self._run_encode(tmp_path, faststart=True)
         assert "-movflags" in cmd
         assert "+faststart" in cmd
+
+    def test_faststart_flag_absent(self, tmp_path: Path) -> None:
+        cmd = self._run_encode(tmp_path, faststart=False)
+        assert "-movflags" not in cmd
+        assert "+faststart" not in cmd
+
+    def test_loudnorm_present(self, tmp_path: Path) -> None:
+        cmd = self._run_encode(tmp_path, loudnorm=True)
+        assert "-af" in cmd
+        assert "loudnorm=I=-16:TP=-1.5:LRA=11" in cmd
 
     def test_explicit_mp4_muxer_flag_present(self, tmp_path: Path) -> None:
         """Regression test: the ".partial" staging suffix (e.g. "out.m4b.partial")

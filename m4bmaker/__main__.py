@@ -8,6 +8,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from m4bmaker import __version__
+from m4bmaker.audnexus import fetch_audnexus_data
 from m4bmaker.chapters import format_chapter_table
 from m4bmaker.chapters_file import load_chapters_file
 from m4bmaker.cli import parse_args
@@ -265,13 +266,27 @@ def _run(args: Namespace) -> None:
             print(format_repair_report(repair_result))
             book.files = apply_repair(book.files, repair_result)
 
-        # 3d. Override chapters from --chapters-file if supplied.
+        # 3d. Override chapters and metadata from Audnexus if requested.
+        audnexus_meta = None
+        if args.audnexus_asin:
+            log(f"Fetching metadata and chapters from Audnexus for ASIN: {args.audnexus_asin}...")
+            fetched_meta, fetched_chapters = fetch_audnexus_data(
+                args.audnexus_asin, args.chapter_offset
+            )
+            if fetched_chapters:
+                book.chapters = fetched_chapters
+                log(f"Loaded {len(book.chapters)} chapter(s) from Audnexus")
+            if fetched_meta:
+                audnexus_meta = fetched_meta
+                log("Loaded metadata from Audnexus")
+
+        # 3e. Override chapters from --chapters-file if supplied.
         if args.chapters_file:
             book.chapters = load_chapters_file(args.chapters_file)
             log(
                 f"Loaded {len(book.chapters)} chapter(s) from {args.chapters_file.name}"
             )
-        else:
+        elif not args.chapters_file and not (args.audnexus_asin and audnexus_meta and fetched_chapters):
             log(f"Generated {len(book.chapters)} chapter(s)")
 
         # Override cover with resolved value (interactive or CLI-supplied).
@@ -280,6 +295,11 @@ def _run(args: Namespace) -> None:
         # 4. Complete metadata interactively.
         log("Reading metadata...")
         raw_meta = extract_metadata(book.files[0])
+        if audnexus_meta:
+            if audnexus_meta.title: raw_meta["title"] = audnexus_meta.title
+            if audnexus_meta.author: raw_meta["author"] = audnexus_meta.author
+            if audnexus_meta.narrator: raw_meta["narrator"] = audnexus_meta.narrator
+            if audnexus_meta.genre: raw_meta["genre"] = audnexus_meta.genre
         hints = _hints_from_dirname(directory)
         filled = prompt_missing(raw_meta, args, hints=hints)
         book.metadata = BookMetadata(
@@ -326,6 +346,8 @@ def _run(args: Namespace) -> None:
             output_path=output,
             bitrate=args.bitrate,
             stereo=args.stereo,
+            loudnorm=args.loudnorm,
+            faststart=args.faststart,
             ffmpeg=ffmpeg,
             ffprobe=ffprobe,
             repair_result=repair_result,
