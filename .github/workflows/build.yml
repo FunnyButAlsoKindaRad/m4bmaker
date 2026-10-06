@@ -6,6 +6,8 @@ name: Build Windows
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"           # trigger on version tags: v0.1.0, v1.2.3, etc.
   workflow_dispatch:   # allow manual runs from Actions tab
