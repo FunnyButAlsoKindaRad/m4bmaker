@@ -238,6 +238,11 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._dark_action)
 
         # Help menu
+        tools_menu = mb.addMenu("Tools")
+        api_prefs_action = QAction("API Settings...", self)
+        api_prefs_action.triggered.connect(self._on_api_prefs)
+        tools_menu.addAction(api_prefs_action)
+
         help_menu = mb.addMenu("Help")
 
         about_action = QAction("About m4Bookmaker", self)
@@ -252,31 +257,7 @@ class MainWindow(QMainWindow):
         self._updates_action.toggled.connect(self._toggle_update_check)
         help_menu.addAction(self._updates_action)
 
-        bug_action = QAction("Report a Bug…", self)
-        bug_action.triggered.connect(
-            lambda: QDesktopServices.openUrl(QUrl(_BUG_REPORT_URL))
-        )
-        help_menu.addAction(bug_action)
 
-        help_menu.addSeparator()
-
-        support_title = QAction("Support Development", self)
-        support_title.setEnabled(False)
-        help_menu.addAction(support_title)
-
-        donate_action = QAction("♥  Buy Me a Coffee…", self)
-        donate_action.triggered.connect(
-            lambda: QDesktopServices.openUrl(QUrl(_DONATE_URL))
-        )
-        help_menu.addAction(donate_action)
-
-        help_menu.addSeparator()
-
-        github_action = QAction("GitHub…", self)
-        github_action.triggered.connect(
-            lambda: QDesktopServices.openUrl(QUrl(_GITHUB_URL))
-        )
-        help_menu.addAction(github_action)
 
     def _set_status(self, text: str) -> None:
         self._status_label.setText(text)
@@ -608,8 +589,8 @@ class MainWindow(QMainWindow):
             grid.addWidget(widget, i, 1)
             widget.textChanged.connect(self._update_output_preview)
 
-        self._audnexus_btn = QPushButton("Fetch from Audnexus")
-        self._audnexus_btn.clicked.connect(self._on_audnexus_clicked)
+        self._audnexus_btn = QPushButton("Fetch Metadata...")
+        self._audnexus_btn.clicked.connect(self._on_fetch_metadata_clicked)
         grid.addWidget(self._audnexus_btn, 4, 1, Qt.AlignmentFlag.AlignRight)
 
         hbox.addLayout(grid, stretch=1)
@@ -847,26 +828,7 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(self._convert_btn)
         btn_row.addStretch()
 
-        sf_icon_lbl = QLabel()
-        sf_icon_lbl.setPixmap(_sageframe_pixmap(14))
-        sf_icon_lbl.setStyleSheet("background: transparent;")
-        btn_row.addWidget(sf_icon_lbl)
-        sf_lbl = QLabel(
-            f'<a href="{_SAGEFRAME_URL}" style="color: #7a7a7a; text-decoration: none;">'
-            "Sageframe</a>"
-        )
-        sf_lbl.setOpenExternalLinks(True)
-        sf_lbl.setStyleSheet("font-size: 11px; background: transparent;")
-        btn_row.addWidget(sf_lbl)
 
-        donate_lbl = QLabel(
-            f'<a href="{_DONATE_URL}" style="color: #c45a2d; text-decoration: none;">'
-            "♥ Support</a>"
-        )
-        donate_lbl.setOpenExternalLinks(True)
-        donate_lbl.setStyleSheet("font-size: 11px; background: transparent;")
-        donate_lbl.setToolTip("Support m4Bookmaker development")
-        btn_row.addWidget(donate_lbl)
 
         layout.addLayout(btn_row)
 
@@ -1728,57 +1690,29 @@ class MainWindow(QMainWindow):
         if self.isVisible():
             QMessageBox.critical(self, "Load Error", msg)
 
-    def _on_audnexus_clicked(self) -> None:
+    def _on_api_prefs(self) -> None:
+        from m4bmaker.gui.api_prefs_dialog import ApiPrefsDialog
+        dlg = ApiPrefsDialog(self)
+        dlg.exec()
+
+    def _on_fetch_metadata_clicked(self) -> None:
         if not self._book:
             return
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Fetch from Audnexus")
-        layout = QGridLayout(dialog)
-        
-        layout.addWidget(QLabel("ASIN:"), 0, 0)
-        asin_edit = QLineEdit()
-        layout.addWidget(asin_edit, 0, 1)
-        
-        layout.addWidget(QLabel("Chapter Offset (sec):"), 1, 0)
-        offset_edit = QLineEdit("0.0")
-        layout.addWidget(offset_edit, 1, 1)
-        
-        btn_box = QHBoxLayout()
-        ok_btn = QPushButton("Fetch")
-        cancel_btn = QPushButton("Cancel")
-        ok_btn.clicked.connect(dialog.accept)
-        cancel_btn.clicked.connect(dialog.reject)
-        btn_box.addWidget(ok_btn)
-        btn_box.addWidget(cancel_btn)
-        layout.addLayout(btn_box, 2, 0, 1, 2)
-        
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            asin = asin_edit.text().strip()
-            if not asin:
-                return
-            try:
-                offset = float(offset_edit.text().strip())
-            except ValueError:
-                QMessageBox.warning(self, "Invalid Input", "Offset must be a number.")
-                return
-                
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            try:
-                from m4bmaker.audnexus import fetch_audnexus_data
-                meta, chapters = fetch_audnexus_data(asin, offset)
-                if meta:
-                    if meta.title: self._title_edit.setText(meta.title)
-                    if meta.author: self._author_edit.setText(meta.author)
-                    if meta.narrator: self._narrator_edit.setText(meta.narrator)
-                    if meta.genre: self._genre_edit.setText(meta.genre)
-                if chapters:
-                    self._book.chapters = chapters
-                    self._chapter_table.populate(chapters)
-                if not meta and not chapters:
-                    QMessageBox.warning(self, "Error", "Failed to fetch data or no data found.")
-            finally:
-                QApplication.restoreOverrideCursor()
+        from m4bmaker.gui.fetcher_dialog import MetadataFetcherDialog
+        dlg = MetadataFetcherDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            meta, chapters, cover = dlg.get_results()
+            if meta:
+                if meta.title: self._title_edit.setText(meta.title)
+                if meta.author: self._author_edit.setText(meta.author)
+                if meta.narrator: self._narrator_edit.setText(meta.narrator)
+                if meta.genre: self._genre_edit.setText(meta.genre)
+            if chapters:
+                self._book.chapters = chapters
+                self._chapter_table.populate(chapters)
+            if cover:
+                self._on_cover_changed(cover)
+                self._cover_widget.set_cover(cover)
 
     def _on_cover_changed(self, p: Path) -> None:
         if self._book:

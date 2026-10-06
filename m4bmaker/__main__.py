@@ -8,7 +8,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from m4bmaker import __version__
-from m4bmaker.audnexus import fetch_audnexus_data
+from m4bmaker.providers import fetch_audnexus_data
 from m4bmaker.chapters import format_chapter_table
 from m4bmaker.chapters_file import load_chapters_file
 from m4bmaker.cli import parse_args
@@ -270,7 +270,7 @@ def _run(args: Namespace) -> None:
         audnexus_meta = None
         if args.audnexus_asin:
             log(f"Fetching metadata and chapters from Audnexus for ASIN: {args.audnexus_asin}...")
-            fetched_meta, fetched_chapters = fetch_audnexus_data(
+            fetched_meta, fetched_chapters, _ = fetch_audnexus_data(
                 args.audnexus_asin, args.chapter_offset
             )
             if fetched_chapters:

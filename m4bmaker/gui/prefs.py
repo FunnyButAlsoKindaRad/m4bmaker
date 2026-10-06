@@ -26,6 +26,7 @@ _PREFS_FILE = "prefs.json"
 _DEFAULTS: dict[str, object] = {
     "dark_mode": False,
     "check_for_updates": True,
+    "google_books_api_key": "",
 }
 
 

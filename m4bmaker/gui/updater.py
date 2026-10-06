@@ -31,7 +31,7 @@ from m4bmaker import __version__
 _log = logging.getLogger(__name__)
 
 _API_URL = "https://api.github.com/repos/sageframe-no-kaji/m4bmaker/releases/latest"
-_RELEASES_URL = "https://github.com/sageframe-no-kaji/m4bmaker/releases"
+_RELEASES_URL = "https://github.com/FunnyButAlsoKindaRad/m4bmaker/releases"
 _TIMEOUT = 5  # seconds
 
 
