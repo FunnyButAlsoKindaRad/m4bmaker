@@ -1019,9 +1019,9 @@ class MainWindow(QMainWindow):
             if "bitrate" in book.prefs:
                 self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
             if "loudnorm" in book.prefs:
-                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
             if "faststart" in book.prefs:
-                self._faststart_chk.setChecked(book.prefs["faststart"])
+                self._faststart_check.setChecked(book.prefs["faststart"])
             if "mono" in book.prefs:
                 self._mono_radio.setChecked(book.prefs["mono"])
             if not book.prefs.get("mono", False):
@@ -1096,9 +1096,9 @@ class MainWindow(QMainWindow):
             if "bitrate" in book.prefs:
                 self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
             if "loudnorm" in book.prefs:
-                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
             if "faststart" in book.prefs:
-                self._faststart_chk.setChecked(book.prefs["faststart"])
+                self._faststart_check.setChecked(book.prefs["faststart"])
             if "mono" in book.prefs:
                 self._mono_radio.setChecked(book.prefs["mono"])
             if not book.prefs.get("mono", False):
@@ -1112,9 +1112,9 @@ class MainWindow(QMainWindow):
             if "bitrate" in book.prefs:
                 self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
             if "loudnorm" in book.prefs:
-                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
             if "faststart" in book.prefs:
-                self._faststart_chk.setChecked(book.prefs["faststart"])
+                self._faststart_check.setChecked(book.prefs["faststart"])
             if "mono" in book.prefs:
                 self._mono_radio.setChecked(book.prefs["mono"])
             if not book.prefs.get("mono", False):
@@ -1128,9 +1128,9 @@ class MainWindow(QMainWindow):
             if "bitrate" in book.prefs:
                 self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
             if "loudnorm" in book.prefs:
-                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
             if "faststart" in book.prefs:
-                self._faststart_chk.setChecked(book.prefs["faststart"])
+                self._faststart_check.setChecked(book.prefs["faststart"])
             if "mono" in book.prefs:
                 self._mono_radio.setChecked(book.prefs["mono"])
             if not book.prefs.get("mono", False):
@@ -1187,9 +1187,9 @@ class MainWindow(QMainWindow):
             if "bitrate" in book.prefs:
                 self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
             if "loudnorm" in book.prefs:
-                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
             if "faststart" in book.prefs:
-                self._faststart_chk.setChecked(book.prefs["faststart"])
+                self._faststart_check.setChecked(book.prefs["faststart"])
             if "mono" in book.prefs:
                 self._mono_radio.setChecked(book.prefs["mono"])
             if not book.prefs.get("mono", False):
@@ -1995,8 +1995,8 @@ class MainWindow(QMainWindow):
         
         prefs_state = {
             "bitrate": self._bitrate_combo.currentText(),
-            "loudnorm": self._loudnorm_chk.isChecked(),
-            "faststart": self._faststart_chk.isChecked(),
+            "loudnorm": self._loudnorm_check.isChecked(),
+            "faststart": self._faststart_check.isChecked(),
             "mono": self._mono_radio.isChecked(),
         }
         
