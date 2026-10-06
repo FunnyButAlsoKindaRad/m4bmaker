@@ -46,6 +46,7 @@ class Book:
     cover: Path | None = field(default=None)
     total_duration: float = field(default=0.0)
     file_durations: list[float] = field(default_factory=list)
+    prefs: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -21,6 +21,7 @@ from m4bmaker.preflight import probe_file, run_preflight
 from m4bmaker.repair import RepairResult
 from m4bmaker.scanner import scan_audio_files
 from m4bmaker.utils import find_ffmpeg
+from m4bmaker.state import find_latest_state, load_state
 
 
 def load_audiobook(
@@ -71,6 +72,7 @@ def load_audiobook(
     if cover is None and files:
         cover = extract_cover_from_audio(files[0], find_ffmpeg())
 
+    loaded_prefs = loaded_prefs if state_file else {}
     file_durs = []
     if chapters and len(chapters) == len(files):
         for i in range(len(files)):
@@ -85,6 +87,7 @@ def load_audiobook(
         cover=cover,
         total_duration=total_duration,
         file_durations=file_durs,
+        prefs=loaded_prefs,
     )
 
 

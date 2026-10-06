@@ -216,6 +216,13 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        save_state_action = QAction("Save Project State", self)
+        save_state_action.setShortcut(QKeySequence.StandardKey.Save)
+        save_state_action.triggered.connect(self._on_save_state)
+        file_menu.addAction(save_state_action)
+        
+        file_menu.addSeparator()
+
         quit_action = QAction("Quit m4Bookmaker", self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         # F11: route through close() so closeEvent's cancel/wait guard runs,
@@ -921,6 +928,7 @@ class MainWindow(QMainWindow):
         if self._queue_window is not None:
             self._queue_window.close()
 
+        self._on_save_state()
         super().closeEvent(event)
 
     def _update_controls(self) -> None:
@@ -1007,6 +1015,17 @@ class MainWindow(QMainWindow):
         self._chapter_durations = self._derive_durations(book)
         self._chapters_merged = False
         self._update_output_preview()
+        if hasattr(book, "prefs") and book.prefs:
+            if "bitrate" in book.prefs:
+                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
+            if "loudnorm" in book.prefs:
+                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+            if "faststart" in book.prefs:
+                self._faststart_chk.setChecked(book.prefs["faststart"])
+            if "mono" in book.prefs:
+                self._mono_radio.setChecked(book.prefs["mono"])
+            if not book.prefs.get("mono", False):
+                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status(
             f"Loaded {len(book.files)} file(s) · {len(book.chapters)} chapter(s)."
@@ -1073,16 +1092,49 @@ class MainWindow(QMainWindow):
 
     def _on_split_finished(self, out_dir: object) -> None:
         self._progress_bar.setVisible(False)
+        if hasattr(book, "prefs") and book.prefs:
+            if "bitrate" in book.prefs:
+                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
+            if "loudnorm" in book.prefs:
+                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+            if "faststart" in book.prefs:
+                self._faststart_chk.setChecked(book.prefs["faststart"])
+            if "mono" in book.prefs:
+                self._mono_radio.setChecked(book.prefs["mono"])
+            if not book.prefs.get("mono", False):
+                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status(f"Split complete → {Path(out_dir).name}/")
 
     def _on_split_cancelled(self) -> None:
         self._progress_bar.setVisible(False)
+        if hasattr(book, "prefs") and book.prefs:
+            if "bitrate" in book.prefs:
+                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
+            if "loudnorm" in book.prefs:
+                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+            if "faststart" in book.prefs:
+                self._faststart_chk.setChecked(book.prefs["faststart"])
+            if "mono" in book.prefs:
+                self._mono_radio.setChecked(book.prefs["mono"])
+            if not book.prefs.get("mono", False):
+                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status("Cancelled.")
 
     def _on_split_error(self, msg: str) -> None:
         self._progress_bar.setVisible(False)
+        if hasattr(book, "prefs") and book.prefs:
+            if "bitrate" in book.prefs:
+                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
+            if "loudnorm" in book.prefs:
+                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+            if "faststart" in book.prefs:
+                self._faststart_chk.setChecked(book.prefs["faststart"])
+            if "mono" in book.prefs:
+                self._mono_radio.setChecked(book.prefs["mono"])
+            if not book.prefs.get("mono", False):
+                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status("Split failed.")
         if self.isVisible():
@@ -1131,6 +1183,17 @@ class MainWindow(QMainWindow):
         self._preflight_sample_rate = None  # M1: reset on any folder change
         self._analysis_label.setText("No analysis yet.")
         self._player.stop()
+        if hasattr(book, "prefs") and book.prefs:
+            if "bitrate" in book.prefs:
+                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
+            if "loudnorm" in book.prefs:
+                self._loudnorm_chk.setChecked(book.prefs["loudnorm"])
+            if "faststart" in book.prefs:
+                self._faststart_chk.setChecked(book.prefs["faststart"])
+            if "mono" in book.prefs:
+                self._mono_radio.setChecked(book.prefs["mono"])
+            if not book.prefs.get("mono", False):
+                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status("Scanning…")
         self._progress_bar.setVisible(True)
@@ -1421,8 +1484,18 @@ class MainWindow(QMainWindow):
             return
         ms = self._player.current_position_ms
         if self._mode == "build" and row < len(self._book.chapters):
-            # cumulative offset of this file in the final audiobook
-            ms += int(self._book.chapters[row].start_time * 1000)
+            ch = self._book.chapters[row]
+            if ch.source_file is None:
+                current_src = self._player._player.source().toLocalFile()
+                cursor = 0.0
+                for i, f in enumerate(self._book.files):
+                    if str(f) == current_src:
+                        ms += int(cursor * 1000)
+                        break
+                    if i < len(self._book.file_durations):
+                        cursor += self._book.file_durations[i]
+            else:
+                ms += int(ch.start_time * 1000)
         self._chapter_table.set_chapter_time(row, ms)
 
     def _on_add_chapter(self) -> None:
