@@ -1981,6 +1981,36 @@ class MainWindow(QMainWindow):
                 ch.start_time = ms / 1000.0
         return chapters
 
+    def _on_save_state(self) -> None:
+        if self._book is None or not self._folder_zone.path():
+            return
+        
+        # Sync UI to Book
+        self._sync_titles_from_table()
+        self._sync_times_from_table()
+        self._book.metadata.title = self._title_edit.text()
+        self._book.metadata.author = self._author_edit.text()
+        self._book.metadata.narrator = self._narrator_edit.text()
+        self._book.metadata.genre = self._genre_edit.text()
+        
+        prefs_state = {
+            "bitrate": self._bitrate_combo.currentText(),
+            "loudnorm": self._loudnorm_chk.isChecked(),
+            "faststart": self._faststart_chk.isChecked(),
+            "mono": self._mono_radio.isChecked(),
+        }
+        
+        from m4bmaker.state import save_state
+        folder = self._folder_zone.path()
+        if not folder.is_dir():
+            folder = folder.parent
+            
+        try:
+            saved_file = save_state(self._book, folder, prefs_state)
+            self._set_status(f"Project state saved to {saved_file.name}")
+        except Exception as e:
+            self._set_status(f"Failed to save state: {e}")
+
     def _on_save_finished(self, dest: object) -> None:
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(100)
