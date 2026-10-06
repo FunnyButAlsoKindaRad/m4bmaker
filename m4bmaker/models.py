@@ -45,6 +45,7 @@ class Book:
     metadata: BookMetadata
     cover: Path | None = field(default=None)
     total_duration: float = field(default=0.0)
+    file_durations: list[float] = field(default_factory=list)
 
 
 @dataclass

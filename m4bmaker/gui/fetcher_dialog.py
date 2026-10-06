@@ -84,10 +84,7 @@ class MetadataFetcherDialog(QDialog):
         self.chap_combo.addItems(["None", "Audible"]) # Google/iTunes don't provide chapters
         map_layout.addWidget(self.chap_combo, 2, 1)
         
-        map_layout.addWidget(QLabel("Chapter Offset (sec):"), 3, 0)
-        self.offset_spin = QDoubleSpinBox()
-        self.offset_spin.setRange(-3600, 3600)
-        map_layout.addWidget(self.offset_spin, 3, 1)
+
 
         layout.addWidget(map_group)
 
@@ -107,7 +104,7 @@ class MetadataFetcherDialog(QDialog):
         if not asin:
             QMessageBox.warning(self, "Error", "Enter ASIN first.")
             return
-        meta, chap, cov = fetch_audnexus_data(asin, self.offset_spin.value())
+        meta, chap, cov = fetch_audnexus_data(asin, 0.0)
         self._data_cache["audible"] = {"meta": meta, "chapters": chap, "cover": cov}
         self._show_test_result("Audible", meta, chap, cov)
 

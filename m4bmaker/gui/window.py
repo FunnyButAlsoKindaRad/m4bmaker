@@ -687,6 +687,8 @@ class MainWindow(QMainWindow):
 
         self._chapter_table = ChapterTable()
         self._chapter_table.currentCellChanged.connect(self._on_chapter_selected)
+        self._chapter_table.cellDoubleClicked.connect(self._on_chapter_double_clicked)
+        self._chapter_table.align_to_player_requested.connect(self._on_align_to_player_requested)
         self._chapter_table.itemSelectionChanged.connect(self._update_chapter_buttons)
         layout.addWidget(self._chapter_table, stretch=1)
 
@@ -739,7 +741,18 @@ class MainWindow(QMainWindow):
         self._ch_remove_btn.setEnabled(False)
         self._ch_remove_btn.clicked.connect(self._on_chapter_remove)
         ch_tools_row.addWidget(self._ch_remove_btn)
+        
+        offset_row = QHBoxLayout()
+        offset_row.addWidget(QLabel("Bulk Offset (sec):"))
+        self._offset_spin = QDoubleSpinBox()
+        self._offset_spin.setRange(-36000, 36000)
+        offset_row.addWidget(self._offset_spin)
+        offset_btn = QPushButton("Shift All")
+        offset_btn.clicked.connect(self._on_shift_all_chapters)
+        offset_row.addWidget(offset_btn)
+        offset_row.addStretch()
         layout.addLayout(ch_tools_row)
+        layout.addLayout(offset_row)
 
         hint = QLabel(
             "Double-click or press a key to edit a title  ·  "
@@ -1325,14 +1338,26 @@ class MainWindow(QMainWindow):
         # In edit mode the source is the single .m4b, so ch.start_time is the
         # correct seek position within that file.  In build mode each chapter is
         # its own source file, so we always seek to the beginning of that file.
+        src = None
+        start_ms = 0
         if self._mode == "edit":
             start_ms = int(ch.start_time * 1000)
+            src = self._folder_zone.path() if self._folder_zone.path() else ch.source_file
         else:
-            start_ms = 0
-        if self._mode == "edit" and self._folder_zone.path() is not None:
-            src = self._folder_zone.path()
-        else:
-            src = ch.source_file
+            if ch.source_file is not None:
+                src = ch.source_file
+                start_ms = 0
+            else:
+                # Build mode with no source file mapped yet (Audible imported chapters)
+                # Find which mp3 file this global start_time falls into
+                if self._book and self._book.file_durations:
+                    cursor = 0.0
+                    for i, dur in enumerate(self._book.file_durations):
+                        if cursor + dur > ch.start_time or i == len(self._book.file_durations) - 1:
+                            src = self._book.files[i]
+                            start_ms = int((ch.start_time - cursor) * 1000)
+                            break
+                        cursor += dur
         if src is not None:
             if self._player.is_playing:
                 # Already playing — seek to the new chapter without restarting
@@ -1340,6 +1365,46 @@ class MainWindow(QMainWindow):
             else:
                 # Not playing — load and position but stay paused
                 self._player.load_paused(src, start_ms)
+
+    def _on_align_to_player_requested(self) -> None:
+        if not self._book or not self._book.chapters:
+            return
+        row = self._chapter_table.currentRow()
+        if row < 0:
+            return
+        ch = self._book.chapters[row]
+        
+        # Calculate global player position
+        ms = self._player.current_position_ms
+        if self._mode == "build" and ch.source_file is None:
+            # Reconstruct global player time based on which file is playing
+            current_src = self._player._player.source().toLocalFile()
+            cursor = 0.0
+            for i, f in enumerate(self._book.files):
+                if str(f) == current_src:
+                    ms += int(cursor * 1000)
+                    break
+                if i < len(self._book.file_durations):
+                    cursor += self._book.file_durations[i]
+        elif self._mode == "build":
+            # 1:1 mapping
+            if row < len(self._book.chapters):
+                ms += int(ch.start_time * 1000)
+                
+        # Offset is difference between player global ms and chapter original global ms
+        diff_s = (ms / 1000.0) - ch.start_time
+        if diff_s == 0:
+            return
+            
+        self._offset_spin.setValue(diff_s)
+        self._on_shift_all_chapters()
+
+    def _on_chapter_double_clicked(self, row: int, col: int) -> None:
+        if col == 0:  # COL_NUM
+            if self._player.has_source:
+                self._player.seek_chapter(self._player._pending_seek_ms if self._player._pending_seek_ms is not None else self._player.current_position_ms)
+                if not self._player.is_playing:
+                    self._player._toggle_play()
 
     def _on_insert_time(self) -> None:
         """Set the selected chapter's start time to the current player position.
@@ -1577,6 +1642,20 @@ class MainWindow(QMainWindow):
         self._chapter_table.populate(self._book.chapters)
         self._chapter_table.setCurrentCell(i + 1, ChapterTable.COL_TITLE)
 
+    def _on_shift_all_chapters(self) -> None:
+        if not self._book or not self._book.chapters:
+            return
+        offset = self._offset_spin.value()
+        if offset == 0.0:
+            return
+        self._sync_titles_from_table()
+        self._sync_times_from_table()
+        for ch in self._book.chapters:
+            ch.start_time = max(0.0, ch.start_time + offset)
+        self._chapter_table.populate(self._book.chapters)
+        self._chapters_merged = True
+        self._update_chapter_buttons()
+
     def _on_chapter_remove(self) -> None:
         if self._book is None:
             return
@@ -1710,6 +1789,8 @@ class MainWindow(QMainWindow):
             if chapters:
                 self._book.chapters = chapters
                 self._chapter_table.populate(chapters)
+                self._chapters_merged = True
+                self._update_chapter_buttons()
             if cover:
                 self._on_cover_changed(cover)
                 self._cover_widget.set_cover(cover)

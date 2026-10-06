@@ -71,12 +71,20 @@ def load_audiobook(
     if cover is None and files:
         cover = extract_cover_from_audio(files[0], find_ffmpeg())
 
+    file_durs = []
+    if chapters and len(chapters) == len(files):
+        for i in range(len(files)):
+            start = chapters[i].start_time
+            end = chapters[i+1].start_time if i + 1 < len(chapters) else total_duration
+            file_durs.append(end - start)
+    
     return Book(
         files=files,
         chapters=chapters,
         metadata=metadata,
         cover=cover,
         total_duration=total_duration,
+        file_durations=file_durs,
     )
 
 
