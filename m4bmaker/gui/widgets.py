@@ -613,6 +613,7 @@ def _parse_time_input(text: str) -> "int | None":
 
 
 class ChapterTable(QTableWidget):
+    align_to_player_requested = Signal()
     """Flat editable chapter table: # | Time | Title.
 
     Keyboard behaviour
