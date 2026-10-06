@@ -1323,6 +1323,7 @@ class MainWindow(QMainWindow):
     def _on_chapter_selected(
         self, row: int, _col: int, _prev_row: int, _prev_col: int
     ) -> None:
+        self._sync_times_from_table()
         self._update_chapter_buttons()
         n = self._chapter_table.rowCount()
         if self._book is None or row < 0 or row >= len(self._book.chapters):
@@ -1402,10 +1403,10 @@ class MainWindow(QMainWindow):
 
     def _on_chapter_double_clicked(self, row: int, col: int) -> None:
         if col == 0:  # COL_NUM
-            if self._player.has_source:
-                self._player.seek_chapter(self._player._pending_seek_ms if self._player._pending_seek_ms is not None else self._player.current_position_ms)
-                if not self._player.is_playing:
-                    self._player._toggle_play()
+            # Force reload the chapter to seek to its start timestamp
+            self._on_chapter_selected(row, col, row, col)
+            if self._player.has_source and not self._player.is_playing:
+                self._player._toggle_play()
 
     def _on_insert_time(self) -> None:
         """Set the selected chapter's start time to the current player position.
