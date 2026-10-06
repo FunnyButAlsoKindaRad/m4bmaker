@@ -784,6 +784,8 @@ class ChapterTable(QTableWidget):
 
     def _show_context_menu(self, pos: QPoint) -> None:
         menu = QMenu(self)
+        menu.addAction("Align all chapters to player position", self.align_to_player_requested.emit)
+        menu.addSeparator()
         menu.addAction("Find / Replace…", self._find_replace)
         menu.addSeparator()
         menu.addAction("Remove Numeric Prefixes", self._remove_numeric)
