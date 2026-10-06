@@ -37,6 +37,8 @@ class Job:
     output_path: Path = field(default_factory=lambda: Path("."))
     bitrate: str = "96k"
     stereo: bool = False
+    loudnorm: bool = False
+    faststart: bool = False
     sample_rate: int | None = None  # None → let ffmpeg decide
 
     # ── runtime state (mutable) ───────────────────────────────────────────────
@@ -69,6 +71,8 @@ def job_from_book(
     output_path: Path,
     bitrate: str = "96k",
     stereo: bool = False,
+    loudnorm: bool = False,
+    faststart: bool = False,
     sample_rate: int | None = None,
 ) -> Job:
     """Create a :class:`Job` from the current GUI book state.
@@ -81,5 +85,7 @@ def job_from_book(
         output_path=output_path,
         bitrate=bitrate,
         stereo=stereo,
+        loudnorm=loudnorm,
+        faststart=faststart,
         sample_rate=sample_rate,
     )

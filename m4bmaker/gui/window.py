@@ -43,6 +43,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -607,6 +608,10 @@ class MainWindow(QMainWindow):
             grid.addWidget(widget, i, 1)
             widget.textChanged.connect(self._update_output_preview)
 
+        self._audnexus_btn = QPushButton("Fetch from Audnexus")
+        self._audnexus_btn.clicked.connect(self._on_audnexus_clicked)
+        grid.addWidget(self._audnexus_btn, 4, 1, Qt.AlignmentFlag.AlignRight)
+
         hbox.addLayout(grid, stretch=1)
         return box
 
@@ -635,6 +640,13 @@ class MainWindow(QMainWindow):
         chan_group.addButton(self._stereo_radio)
         layout.addWidget(self._mono_radio)
         layout.addWidget(self._stereo_radio)
+
+        layout.addSpacing(10)
+        self._loudnorm_check = QCheckBox("Normalize (R128)")
+        self._faststart_check = QCheckBox("Faststart")
+        layout.addWidget(self._loudnorm_check)
+        layout.addWidget(self._faststart_check)
+
         layout.addStretch()
         return w
 
@@ -1111,6 +1123,8 @@ class MainWindow(QMainWindow):
             out,
             bitrate=self._bitrate_combo.currentText(),
             stereo=self._stereo_radio.isChecked(),
+            loudnorm=self._loudnorm_check.isChecked(),
+            faststart=self._faststart_check.isChecked(),
             sample_rate=self._preflight_sample_rate,
         )
 
@@ -1713,6 +1727,58 @@ class MainWindow(QMainWindow):
         # dialog parented to a deletion-pending window is fatal under Qt.
         if self.isVisible():
             QMessageBox.critical(self, "Load Error", msg)
+
+    def _on_audnexus_clicked(self) -> None:
+        if not self._book:
+            return
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Fetch from Audnexus")
+        layout = QGridLayout(dialog)
+        
+        layout.addWidget(QLabel("ASIN:"), 0, 0)
+        asin_edit = QLineEdit()
+        layout.addWidget(asin_edit, 0, 1)
+        
+        layout.addWidget(QLabel("Chapter Offset (sec):"), 1, 0)
+        offset_edit = QLineEdit("0.0")
+        layout.addWidget(offset_edit, 1, 1)
+        
+        btn_box = QHBoxLayout()
+        ok_btn = QPushButton("Fetch")
+        cancel_btn = QPushButton("Cancel")
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_box.addWidget(ok_btn)
+        btn_box.addWidget(cancel_btn)
+        layout.addLayout(btn_box, 2, 0, 1, 2)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            asin = asin_edit.text().strip()
+            if not asin:
+                return
+            try:
+                offset = float(offset_edit.text().strip())
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Input", "Offset must be a number.")
+                return
+                
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                from m4bmaker.audnexus import fetch_audnexus_data
+                meta, chapters = fetch_audnexus_data(asin, offset)
+                if meta:
+                    if meta.title: self._title_edit.setText(meta.title)
+                    if meta.author: self._author_edit.setText(meta.author)
+                    if meta.narrator: self._narrator_edit.setText(meta.narrator)
+                    if meta.genre: self._genre_edit.setText(meta.genre)
+                if chapters:
+                    self._book.chapters = chapters
+                    self._chapter_table.populate(chapters)
+                if not meta and not chapters:
+                    QMessageBox.warning(self, "Error", "Failed to fetch data or no data found.")
+            finally:
+                QApplication.restoreOverrideCursor()
 
     def _on_cover_changed(self, p: Path) -> None:
         if self._book:

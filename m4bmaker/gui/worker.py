@@ -65,6 +65,8 @@ class ConvertWorker(QThread):
         output_path: Path,
         bitrate: str = "96k",
         stereo: bool = False,
+        loudnorm: bool = False,
+        faststart: bool = False,
         sample_rate: int | None = None,
     ) -> None:
         super().__init__()
@@ -72,6 +74,8 @@ class ConvertWorker(QThread):
         self._output_path = output_path
         self._bitrate = bitrate
         self._stereo = stereo
+        self._loudnorm = loudnorm
+        self._faststart = faststart
         self._sample_rate = sample_rate
         self._cancel_event = threading.Event()
 
@@ -88,6 +92,8 @@ class ConvertWorker(QThread):
                 output_path=self._output_path,
                 bitrate=self._bitrate,
                 stereo=self._stereo,
+                loudnorm=self._loudnorm,
+                faststart=self._faststart,
                 sample_rate=self._sample_rate,
                 cover=self._book.cover,
                 progress_callback=self._on_progress,

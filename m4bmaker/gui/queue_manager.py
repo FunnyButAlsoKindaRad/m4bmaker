@@ -73,6 +73,8 @@ class JobWorker(QThread):
                 output_path=self._job.output_path,
                 bitrate=self._job.bitrate,
                 stereo=self._job.stereo,
+                loudnorm=self._job.loudnorm,
+                faststart=self._job.faststart,
                 sample_rate=self._job.sample_rate,
                 cover=self._job.book.cover,
                 progress_callback=_cb,
