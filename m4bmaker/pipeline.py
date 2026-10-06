@@ -52,15 +52,22 @@ def load_audiobook(
         files = scan_audio_files(source)
         cover = find_cover(source)
 
-    raw_meta = extract_metadata(files[0]) if files else {}
-    metadata = BookMetadata(
-        title=raw_meta.get("title", ""),
-        author=raw_meta.get("author", ""),
-        narrator=raw_meta.get("narrator", ""),
-        genre=raw_meta.get("genre", ""),
-    )
-
-    chapters = build_chapters(files, ffprobe, progress_fn=progress_fn)
+    # Check for state file
+    state_file = find_latest_state(source) if isinstance(source, Path) and source.is_dir() else None
+    
+    if state_file:
+        metadata, chapters, loaded_cover, loaded_prefs = load_state(state_file, files)
+        if loaded_cover:
+            cover = loaded_cover
+    else:
+        raw_meta = extract_metadata(files[0]) if files else {}
+        metadata = BookMetadata(
+            title=raw_meta.get("title", ""),
+            author=raw_meta.get("author", ""),
+            narrator=raw_meta.get("narrator", ""),
+            genre=raw_meta.get("genre", ""),
+        )
+        chapters = build_chapters(files, ffprobe, progress_fn=progress_fn)
 
     # Compute total duration for UI reorder/remove support
     if chapters:
