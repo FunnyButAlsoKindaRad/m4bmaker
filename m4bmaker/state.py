@@ -54,7 +54,12 @@ def find_latest_state(folder: Path) -> Path | None:
 def load_state(state_file: Path, files: list[Path]) -> tuple[BookMetadata, list[Chapter], Path | None, dict]:
     """Load metadata, chapters, cover, and prefs from a state file."""
     with open(state_file, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            import logging
+            logging.getLogger(__name__).warning("Failed to decode JSON from %s", state_file)
+            return BookMetadata(), [], None, {}
         
     meta = BookMetadata(
         title=data.get("metadata", {}).get("title", ""),

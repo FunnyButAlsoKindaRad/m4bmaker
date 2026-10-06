@@ -1092,49 +1092,16 @@ class MainWindow(QMainWindow):
 
     def _on_split_finished(self, out_dir: object) -> None:
         self._progress_bar.setVisible(False)
-        if hasattr(book, "prefs") and book.prefs:
-            if "bitrate" in book.prefs:
-                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
-            if "loudnorm" in book.prefs:
-                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
-            if "faststart" in book.prefs:
-                self._faststart_check.setChecked(book.prefs["faststart"])
-            if "mono" in book.prefs:
-                self._mono_radio.setChecked(book.prefs["mono"])
-            if not book.prefs.get("mono", False):
-                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status(f"Split complete → {Path(out_dir).name}/")
 
     def _on_split_cancelled(self) -> None:
         self._progress_bar.setVisible(False)
-        if hasattr(book, "prefs") and book.prefs:
-            if "bitrate" in book.prefs:
-                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
-            if "loudnorm" in book.prefs:
-                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
-            if "faststart" in book.prefs:
-                self._faststart_check.setChecked(book.prefs["faststart"])
-            if "mono" in book.prefs:
-                self._mono_radio.setChecked(book.prefs["mono"])
-            if not book.prefs.get("mono", False):
-                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status("Cancelled.")
 
     def _on_split_error(self, msg: str) -> None:
         self._progress_bar.setVisible(False)
-        if hasattr(book, "prefs") and book.prefs:
-            if "bitrate" in book.prefs:
-                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
-            if "loudnorm" in book.prefs:
-                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
-            if "faststart" in book.prefs:
-                self._faststart_check.setChecked(book.prefs["faststart"])
-            if "mono" in book.prefs:
-                self._mono_radio.setChecked(book.prefs["mono"])
-            if not book.prefs.get("mono", False):
-                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status("Split failed.")
         if self.isVisible():
@@ -1183,17 +1150,6 @@ class MainWindow(QMainWindow):
         self._preflight_sample_rate = None  # M1: reset on any folder change
         self._analysis_label.setText("No analysis yet.")
         self._player.stop()
-        if hasattr(book, "prefs") and book.prefs:
-            if "bitrate" in book.prefs:
-                self._bitrate_combo.setCurrentText(book.prefs["bitrate"])
-            if "loudnorm" in book.prefs:
-                self._loudnorm_check.setChecked(book.prefs["loudnorm"])
-            if "faststart" in book.prefs:
-                self._faststart_check.setChecked(book.prefs["faststart"])
-            if "mono" in book.prefs:
-                self._mono_radio.setChecked(book.prefs["mono"])
-            if not book.prefs.get("mono", False):
-                self._stereo_radio.setChecked(True)
         self._update_controls()
         self._set_status("Scanning…")
         self._progress_bar.setVisible(True)
