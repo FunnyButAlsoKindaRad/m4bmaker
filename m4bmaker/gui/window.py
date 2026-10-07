@@ -297,6 +297,18 @@ class MainWindow(QMainWindow):
             self._dark_btn.setIcon(dark_mode_icon(self._dark_mode))
         if self._queue_window is not None:
             self._queue_window.apply_stylesheet(self._dark_mode)
+        if hasattr(self, "_player"):
+            self._player.set_dark_mode(self._dark_mode)
+            from m4bmaker.gui.icons import load_svg_icon
+            from m4bmaker.gui.svg_icons import PREVIOUS_CHAPTER_SVG, NEXT_CHAPTER_SVG
+            from PySide6.QtCore import QSize
+            color = "#f0f0f0" if self._dark_mode else "#1a1a1a"
+            if hasattr(self, "_ch_prev_btn"):
+                self._ch_prev_btn.setIcon(load_svg_icon(PREVIOUS_CHAPTER_SVG, color, 128))
+                self._ch_prev_btn.setIconSize(QSize(32, 32))
+            if hasattr(self, "_ch_next_btn"):
+                self._ch_next_btn.setIcon(load_svg_icon(NEXT_CHAPTER_SVG, color, 128))
+                self._ch_next_btn.setIconSize(QSize(32, 32))
 
     def _on_job_updated(self, _job_id: object) -> None:
         self._update_controls()
@@ -755,44 +767,32 @@ class MainWindow(QMainWindow):
         self._ch_remove_btn.clicked.connect(self._on_chapter_remove)
         ch_tools_row.addWidget(self._ch_remove_btn)
         
-        offset_row = QHBoxLayout()
-        offset_row.addWidget(QLabel("Bulk Offset (sec):"))
+        ch_tools_row.addSpacing(12)
+        ch_tools_row.addWidget(QLabel("Bulk Offset (sec):"))
         self._offset_spin = QDoubleSpinBox()
         self._offset_spin.setRange(-36000, 36000)
-        offset_row.addWidget(self._offset_spin)
+        ch_tools_row.addWidget(self._offset_spin)
         offset_btn = QPushButton("Shift All")
         offset_btn.clicked.connect(self._on_shift_all_chapters)
-        offset_row.addWidget(offset_btn)
-        offset_row.addStretch()
+        ch_tools_row.addWidget(offset_btn)
+        ch_tools_row.addStretch()
         layout.addLayout(ch_tools_row)
-        layout.addLayout(offset_row)
 
-        hint = QLabel(
-            "Double-click or press a key to edit a title  ·  "
-            "Enter = next row  ·  Shift+Enter = previous row  ·  "
-            "Shift-click to select a range for Merge  ·  Right-click for bulk tools"
-        )
-        hint.setStyleSheet("color: #7a7a7a; font-size: 11px;")
-        hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(hint)
-
-        # Player row — prev/next injected directly into the player's button row
         self._player = AudioPlayerWidget()
         self._player.position_changed.connect(self._on_playback_progress)
-        self._ch_prev_btn = QPushButton("⏮")
-        self._ch_prev_btn.setFixedWidth(36)
+        self._ch_prev_btn = QPushButton()
+        self._ch_prev_btn.setFixedSize(36, 36)
         self._ch_prev_btn.setToolTip("Previous chapter")
         self._ch_prev_btn.setEnabled(False)
         self._ch_prev_btn.clicked.connect(self._on_chapter_prev)
-        self._ch_next_btn = QPushButton("⏭")
-        self._ch_next_btn.setFixedWidth(36)
+        self._ch_next_btn = QPushButton()
+        self._ch_next_btn.setFixedSize(36, 36)
         self._ch_next_btn.setToolTip("Next chapter")
         self._ch_next_btn.setEnabled(False)
         self._ch_next_btn.clicked.connect(self._on_chapter_next)
-        # Insert prev/next before play button in the player's row layout
-        player_row = self._player.layout().itemAt(0).layout()
-        player_row.insertWidget(0, self._ch_next_btn)
-        player_row.insertWidget(0, self._ch_prev_btn)
+        
+        self._player.transport_layout.insertWidget(1, self._ch_prev_btn)
+        self._player.transport_layout.insertWidget(5, self._ch_next_btn)
         layout.addWidget(self._player)
         return tab
 
@@ -830,13 +830,13 @@ class MainWindow(QMainWindow):
 
         self._convert_btn = QPushButton("Convert to M4B")
         self._convert_btn.setObjectName("convertBtn")
-        self._convert_btn.setFixedHeight(44)
+        self._convert_btn.setFixedHeight(36)
         self._convert_btn.setFixedWidth(210)
         self._convert_btn.clicked.connect(self._on_convert)
 
         self._add_to_queue_btn = QPushButton("+ Queue")
         self._add_to_queue_btn.setObjectName("addToQueueBtn")
-        self._add_to_queue_btn.setFixedHeight(44)
+        self._add_to_queue_btn.setFixedHeight(36)
         self._add_to_queue_btn.setToolTip(
             "Add this book to the encode queue (⌘⇧Q to open queue)"
         )
@@ -844,7 +844,7 @@ class MainWindow(QMainWindow):
 
         self._split_btn = QPushButton("✂  Split into Chapters")
         self._split_btn.setObjectName("splitBtn")
-        self._split_btn.setFixedHeight(44)
+        self._split_btn.setFixedHeight(36)
         self._split_btn.setToolTip("Export each chapter as a separate audio file")
         self._split_btn.clicked.connect(self._on_split_chapters)
         self._split_btn.setVisible(False)

@@ -25,6 +25,12 @@ import math
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 
+try:
+    from PySide6.QtSvg import QSvgRenderer
+except ImportError:
+    QSvgRenderer = None
+
+
 # Painted at this many device pixels per logical pixel so the icon stays crisp
 # on Retina displays and when Qt scales it up into a larger button.
 _SUPERSAMPLE = 4
@@ -109,3 +115,29 @@ def dark_mode_icon(dark_mode: bool, size: int = 16) -> QIcon:
     appears when dark mode is already on.
     """
     return sun_icon(_FG_DARK, size) if dark_mode else moon_icon(_FG_LIGHT, size)
+
+
+def load_svg_icon(svg_text: str, color: str, size: int = 32) -> QIcon:
+    """Load an SVG icon from a string, injecting the foreground color."""
+    if not QSvgRenderer:
+        return QIcon()
+
+    # Inject fill color into the root SVG tag. This assumes the SVG has a <svg> tag.
+    # We replace <svg with <svg fill="{color}"
+    if "<svg " in svg_text:
+        colored_svg = svg_text.replace("<svg ", f'<svg fill="{color}" ', 1)
+    elif "<svg>" in svg_text:
+        colored_svg = svg_text.replace("<svg>", f'<svg fill="{color}">', 1)
+    else:
+        colored_svg = svg_text
+
+    pixmap = _canvas(size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    
+    renderer = QSvgRenderer(colored_svg.encode("utf-8"))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    renderer.render(painter)
+    painter.end()
+
+    return QIcon(pixmap)

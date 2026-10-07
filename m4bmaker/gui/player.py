@@ -71,18 +71,23 @@ class AudioPlayerWidget(QWidget):
         self._pending_seek_ms: int | None = None
 
         # ── buttons ──────────────────────────────────────────────────────────
+        self._rw_btn = QPushButton()
+        self._rw_btn.setObjectName("playerRwBtn")
+        self._rw_btn.setFixedSize(40, 40)
+        self._rw_btn.setToolTip("Rewind 15s")
+        self._rw_btn.clicked.connect(lambda: self.seek_relative(-15000))
+
         self._play_btn = QPushButton(_ICON_PLAY)
         self._play_btn.setObjectName("playerPlayBtn")
-        self._play_btn.setFixedSize(36, 32)
+        self._play_btn.setFixedSize(48, 48)
         self._play_btn.setToolTip("Play / Pause")
         self._play_btn.clicked.connect(self._toggle_play)
 
-        self._stop_btn = QPushButton(_ICON_STOP)
-        self._stop_btn.setObjectName("playerStopBtn")
-        self._stop_btn.setFixedSize(36, 32)
-        self._stop_btn.setToolTip("Stop")
-        self._stop_btn.setEnabled(False)
-        self._stop_btn.clicked.connect(self._on_stop)
+        self._ff_btn = QPushButton()
+        self._ff_btn.setObjectName("playerFfBtn")
+        self._ff_btn.setFixedSize(40, 40)
+        self._ff_btn.setToolTip("Fast Forward 15s")
+        self._ff_btn.clicked.connect(lambda: self.seek_relative(15000))
 
         # ── timeline slider ───────────────────────────────────────────────────
         self._slider = QSlider(Qt.Orientation.Horizontal)
@@ -97,23 +102,38 @@ class AudioPlayerWidget(QWidget):
         self._time_lbl.setStyleSheet(
             "font-size: 11px; color: #7a7a7a; background: transparent;"
         )
-        self._time_lbl.setMinimumWidth(110)
         self._time_lbl.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
 
         # ── layout ────────────────────────────────────────────────────────────
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-        row.addWidget(self._play_btn)
-        row.addWidget(self._stop_btn)
-        row.addWidget(self._slider, stretch=1)
-        row.addWidget(self._time_lbl)
+        # Top Row (Time Readout right-aligned)
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.addStretch()
+        top_row.addWidget(self._time_lbl)
+
+        # Middle Row (Progress bar)
+        mid_row = QHBoxLayout()
+        mid_row.setContentsMargins(0, 0, 0, 0)
+        mid_row.addWidget(self._slider, stretch=1)
+
+        # Bottom Row (Transport buttons)
+        self._transport_layout = QHBoxLayout()
+        self._transport_layout.setContentsMargins(0, 0, 0, 0)
+        self._transport_layout.setSpacing(12)
+        self._transport_layout.addStretch()
+        self._transport_layout.addWidget(self._rw_btn)
+        self._transport_layout.addWidget(self._play_btn)
+        self._transport_layout.addWidget(self._ff_btn)
+        self._transport_layout.addStretch()
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 4, 0, 0)
-        outer.addLayout(row)
+        outer.setSpacing(4)
+        outer.addLayout(top_row)
+        outer.addLayout(mid_row)
+        outer.addLayout(self._transport_layout)
 
         # ── player signals ────────────────────────────────────────────────────
         self._player.positionChanged.connect(self._on_position_changed)
@@ -219,6 +239,37 @@ class AudioPlayerWidget(QWidget):
         """True if a file is loaded."""
         return not self._player.source().isEmpty()
 
+    @property
+    def transport_layout(self) -> QHBoxLayout:
+        return self._transport_layout
+
+    def seek_relative(self, offset_ms: int) -> None:
+        """Seek relative to current position."""
+        if self._player.source().isEmpty():
+            return
+        new_pos = max(0, self._player.position() + offset_ms)
+        self.seek_chapter(new_pos)
+
+    def set_dark_mode(self, dark_mode: bool) -> None:
+        """Update SVG icons for buttons."""
+        from PySide6.QtCore import QSize
+        from m4bmaker.gui.icons import load_svg_icon
+        from m4bmaker.gui.svg_icons import PLAY_SVG, PAUSE_SVG, REWIND_SVG, FAST_FORWARD_SVG
+        
+        color = "#f0f0f0" if dark_mode else "#1a1a1a"
+        
+        # We store SVG strings in instance so _update_buttons can toggle Play/Pause
+        self._color = color
+        
+        # Default states
+        self._rw_btn.setIcon(load_svg_icon(REWIND_SVG, color, 128))
+        self._rw_btn.setIconSize(QSize(32, 32))
+        
+        self._ff_btn.setIcon(load_svg_icon(FAST_FORWARD_SVG, color, 128))
+        self._ff_btn.setIconSize(QSize(32, 32))
+        
+        self._update_buttons(self._player.playbackState())
+
     # ── internal slots ────────────────────────────────────────────────────────
 
     def _toggle_play(self) -> None:
@@ -226,9 +277,6 @@ class AudioPlayerWidget(QWidget):
             self._player.pause()
         else:
             self._player.play()
-
-    def _on_stop(self) -> None:
-        self._player.stop()
 
     def _on_slider_pressed(self) -> None:
         self._seeking = True
@@ -252,6 +300,14 @@ class AudioPlayerWidget(QWidget):
 
     def _update_buttons(self, state: QMediaPlayer.PlaybackState) -> None:
         playing = state == QMediaPlayer.PlaybackState.PlayingState
-        stopped = state == QMediaPlayer.PlaybackState.StoppedState
-        self._play_btn.setText(_ICON_PAUSE if playing else _ICON_PLAY)
-        self._stop_btn.setEnabled(not stopped)
+        
+        if hasattr(self, '_color'):
+            from PySide6.QtCore import QSize
+            from m4bmaker.gui.icons import load_svg_icon
+            from m4bmaker.gui.svg_icons import PLAY_SVG, PAUSE_SVG
+            svg = PAUSE_SVG if playing else PLAY_SVG
+            self._play_btn.setIcon(load_svg_icon(svg, self._color, 128))
+            self._play_btn.setIconSize(QSize(32, 32))
+            self._play_btn.setText("") # Remove text if SVG is used
+        else:
+            self._play_btn.setText(_ICON_PAUSE if playing else _ICON_PLAY)
