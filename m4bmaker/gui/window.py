@@ -305,10 +305,10 @@ class MainWindow(QMainWindow):
             color = "#f0f0f0" if self._dark_mode else "#1a1a1a"
             if hasattr(self, "_ch_prev_btn"):
                 self._ch_prev_btn.setIcon(load_svg_icon(PREVIOUS_CHAPTER_SVG, color, 128))
-                self._ch_prev_btn.setIconSize(QSize(32, 32))
+                self._ch_prev_btn.setIconSize(QSize(20, 20))
             if hasattr(self, "_ch_next_btn"):
                 self._ch_next_btn.setIcon(load_svg_icon(NEXT_CHAPTER_SVG, color, 128))
-                self._ch_next_btn.setIconSize(QSize(32, 32))
+                self._ch_next_btn.setIconSize(QSize(20, 20))
 
     def _on_job_updated(self, _job_id: object) -> None:
         self._update_controls()
@@ -782,11 +782,13 @@ class MainWindow(QMainWindow):
         self._player.position_changed.connect(self._on_playback_progress)
         self._ch_prev_btn = QPushButton()
         self._ch_prev_btn.setFixedSize(36, 36)
+        self._ch_prev_btn.setStyleSheet("padding: 0px;")
         self._ch_prev_btn.setToolTip("Previous chapter")
         self._ch_prev_btn.setEnabled(False)
         self._ch_prev_btn.clicked.connect(self._on_chapter_prev)
         self._ch_next_btn = QPushButton()
         self._ch_next_btn.setFixedSize(36, 36)
+        self._ch_next_btn.setStyleSheet("padding: 0px;")
         self._ch_next_btn.setToolTip("Next chapter")
         self._ch_next_btn.setEnabled(False)
         self._ch_next_btn.clicked.connect(self._on_chapter_next)

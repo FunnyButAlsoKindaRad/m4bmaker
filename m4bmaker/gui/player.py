@@ -74,18 +74,21 @@ class AudioPlayerWidget(QWidget):
         # ── buttons ──────────────────────────────────────────────────────────
         self._rw_btn = QPushButton()
         self._rw_btn.setObjectName("playerRwBtn")
+        self._rw_btn.setStyleSheet("padding: 0px;")
         self._rw_btn.setFixedSize(40, 40)
         self._rw_btn.setToolTip("Rewind 15s")
         self._rw_btn.clicked.connect(lambda: self.seek_relative(-15000))
 
         self._play_btn = QPushButton(_ICON_PLAY)
         self._play_btn.setObjectName("playerPlayBtn")
+        self._play_btn.setStyleSheet("padding: 0px;")
         self._play_btn.setFixedSize(48, 48)
         self._play_btn.setToolTip("Play / Pause")
         self._play_btn.clicked.connect(self._toggle_play)
 
         self._ff_btn = QPushButton()
         self._ff_btn.setObjectName("playerFfBtn")
+        self._ff_btn.setStyleSheet("padding: 0px;")
         self._ff_btn.setFixedSize(40, 40)
         self._ff_btn.setToolTip("Fast Forward 15s")
         self._ff_btn.clicked.connect(lambda: self.seek_relative(15000))
@@ -264,10 +267,10 @@ class AudioPlayerWidget(QWidget):
         
         # Default states
         self._rw_btn.setIcon(load_svg_icon(REWIND_SVG, color, 128))
-        self._rw_btn.setIconSize(QSize(32, 32))
+        self._rw_btn.setIconSize(QSize(24, 24))
         
         self._ff_btn.setIcon(load_svg_icon(FAST_FORWARD_SVG, color, 128))
-        self._ff_btn.setIconSize(QSize(32, 32))
+        self._ff_btn.setIconSize(QSize(24, 24))
         
         self._update_buttons(self._player.playbackState())
 
@@ -308,7 +311,7 @@ class AudioPlayerWidget(QWidget):
             from m4bmaker.gui.svg_icons import PLAY_SVG, PAUSE_SVG
             svg = PAUSE_SVG if playing else PLAY_SVG
             self._play_btn.setIcon(load_svg_icon(svg, self._color, 128))
-            self._play_btn.setIconSize(QSize(32, 32))
+            self._play_btn.setIconSize(QSize(28, 28))
             self._play_btn.setText("") # Remove text if SVG is used
         else:
             self._play_btn.setText(_ICON_PAUSE if playing else _ICON_PLAY)
