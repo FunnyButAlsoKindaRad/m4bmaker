@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -40,6 +40,7 @@ def _fmt_ms(ms: int) -> str:
 
 
 class AudioPlayerWidget(QWidget):
+    position_changed = Signal(int)
     """Play/Pause + seek slider + time readout for audio preview.
 
     Selecting a row in the :class:`ChapterTable` should call
@@ -241,6 +242,7 @@ class AudioPlayerWidget(QWidget):
             self._slider.setValue(position_ms)
         duration = self._player.duration()
         self._time_lbl.setText(f"{_fmt_ms(position_ms)} / {_fmt_ms(duration)}")
+        self.position_changed.emit(position_ms)
 
     def _on_duration_changed(self, duration_ms: int) -> None:
         self._slider.setMaximum(duration_ms)

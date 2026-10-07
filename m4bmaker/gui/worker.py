@@ -36,7 +36,7 @@ class LoadWorker(QThread):
     #: via ``sender()`` to drop results from a superseded scan (H5).
     generation: int = -1
 
-    def __init__(self, folder: Path) -> None:
+    def __init__(self, folder: Path | list[Path]) -> None:
         super().__init__()
         self._folder = folder
 

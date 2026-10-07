@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(lambda: self._folder_zone._browse())
         file_menu.addAction(open_action)
 
-        open_m4b_action = QAction("Open M4B File\u2026", self)
+        open_m4b_action = QAction("Open Audio File\u2026", self)
         open_m4b_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
         open_m4b_action.triggered.connect(self._open_m4b_file)
         file_menu.addAction(open_m4b_action)
@@ -773,6 +773,7 @@ class MainWindow(QMainWindow):
 
         # Player row — prev/next injected directly into the player's button row
         self._player = AudioPlayerWidget()
+        self._player.position_changed.connect(self._on_playback_progress)
         self._ch_prev_btn = QPushButton("⏮")
         self._ch_prev_btn.setFixedWidth(36)
         self._ch_prev_btn.setToolTip("Previous chapter")
@@ -1172,9 +1173,10 @@ class MainWindow(QMainWindow):
         # invoke a slot on a destroyed window — a fatal error under PySide6.
         # The scan generation therefore rides on the worker object (read back
         # via sender()), not in a closure.
-        if p.is_dir():
+        if p.is_dir() or p.suffix.lower() != ".m4b":
             self._set_mode("build")
-            self._load_worker = LoadWorker(p)
+            source = [p] if p.is_file() else p
+            self._load_worker = LoadWorker(source)
             self._load_worker.generation = generation
             self._load_worker.result_ready.connect(self._on_load_finished)
             self._load_worker.error.connect(self._on_load_error)
@@ -1242,6 +1244,17 @@ class MainWindow(QMainWindow):
             worker.deleteLater()
 
     def _on_folder_cleared(self) -> None:
+        self._title_edit.clear()
+        self._author_edit.clear()
+        self._narrator_edit.clear()
+        self._genre_edit.clear()
+        self._cover_widget.set_cover(None)
+        
+        self._bitrate_combo.setCurrentIndex(3)
+        self._stereo_radio.setChecked(True)
+        self._loudnorm_check.setChecked(False)
+        self._faststart_check.setChecked(False)
+
         self._preflight_sample_rate = None
         self._book = None
         self._set_mode("build")
@@ -1404,7 +1417,7 @@ class MainWindow(QMainWindow):
             current_src = self._player._player.source().toLocalFile()
             cursor = 0.0
             for i, f in enumerate(self._book.files):
-                if str(f) == current_src:
+                if current_src and Path(f).resolve() == Path(current_src).resolve():
                     ms += int(cursor * 1000)
                     break
                 if i < len(self._book.file_durations):
@@ -1421,6 +1434,30 @@ class MainWindow(QMainWindow):
             
         self._offset_spin.setValue(diff_s)
         self._on_shift_all_chapters()
+
+    def _on_playback_progress(self, local_ms: int) -> None:
+        if self._book is None or not self._book.chapters:
+            return
+            
+        ms = local_ms
+        if self._mode == "build":
+            current_src = self._player._player.source().toLocalFile()
+            cursor = 0.0
+            for i, f in enumerate(self._book.files):
+                if current_src and Path(f).resolve() == Path(current_src).resolve():
+                    ms += int(cursor * 1000)
+                    break
+                if hasattr(self._book, "file_durations") and i < len(self._book.file_durations):
+                    cursor += self._book.file_durations[i]
+
+        current_chapter_index = 0
+        for i, ch in enumerate(self._book.chapters):
+            if ms >= int(ch.start_time * 1000):
+                current_chapter_index = i
+            else:
+                break
+                
+        self._chapter_table.highlight_playing_chapter(current_chapter_index)
 
     def _on_chapter_double_clicked(self, row: int, col: int) -> None:
         if col == 0:  # COL_NUM
@@ -1447,7 +1484,7 @@ class MainWindow(QMainWindow):
                 current_src = self._player._player.source().toLocalFile()
                 cursor = 0.0
                 for i, f in enumerate(self._book.files):
-                    if str(f) == current_src:
+                    if current_src and Path(f).resolve() == Path(current_src).resolve():
                         ms += int(cursor * 1000)
                         break
                     if i < len(self._book.file_durations):

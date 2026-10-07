@@ -106,13 +106,13 @@ class TestFolderDropZone:
         self.w.dragEnterEvent(event)
         event.acceptProposedAction.assert_called_once()  # type: ignore[attr-defined]
 
-    def test_drag_enter_file_ignored(self, tmp_path: Path):
+    def test_drag_enter_file_accepted(self, tmp_path: Path):
         f = tmp_path / "file.mp3"
         f.write_bytes(b"x")
         mime = _mime_with_file(f)
         event = _make_drag_enter_event(mime)
         self.w.dragEnterEvent(event)
-        event.ignore.assert_called_once()  # type: ignore[attr-defined]
+        event.acceptProposedAction.assert_called_once()  # type: ignore[attr-defined]
 
     def test_drag_leave_clears_style(self, tmp_path: Path):
         event = MagicMock(spec=QDragLeaveEvent)

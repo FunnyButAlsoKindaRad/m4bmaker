@@ -163,9 +163,9 @@ class FolderDropZone(QFrame):
         else:
             path, _ = QFileDialog.getOpenFileName(
                 self,
-                "Edit M4B Chapters",
+                "Open Audio File",
                 "",
-                "M4B Audiobooks (*.m4b);;All Files (*)",
+                "Audio Files (*.m4b *.mp3 *.m4a *.flac *.wav *.aac *.ogg);;All Files (*)",
                 "",
                 QFileDialog.Option.DontUseNativeDialog,
             )
@@ -173,13 +173,13 @@ class FolderDropZone(QFrame):
 
     def _handle_m4b_path(self, path: str) -> None:
         """Apply a picked path (from either backend) — shared result handling."""
-        if path and path.lower().endswith(".m4b"):
+        if path and Path(path).suffix.lower() in {".m4b", ".mp3", ".m4a", ".flac", ".wav", ".aac", ".ogg"}:
             self.set_path(Path(path))
         elif path:
             QMessageBox.warning(
                 self,
-                "Not an M4B",
-                f"'{Path(path).name}' is not an .m4b file.",
+                "Not an Audio File",
+                f"'{Path(path).name}' is not a recognized audio file.",
             )
 
     def _browse_m4b_macos(self) -> None:
@@ -191,7 +191,7 @@ class FolderDropZone(QFrame):
         (osascript missing, etc.) falls back to QFileDialog.
         """
         script = (
-            'set theFile to choose file with prompt "Select an M4B audiobook"\n'
+            'set theFile to choose file with prompt "Select an audio file"\n'
             "return POSIX path of theFile"
         )
         proc = QProcess(self)
@@ -219,9 +219,9 @@ class FolderDropZone(QFrame):
         self._m4b_picker_proc = None
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Edit M4B Chapters",
+            "Open Audio File",
             "",
-            "M4B Audiobooks (*.m4b);;All Files (*)",
+            "Audio Files (*.m4b *.mp3 *.m4a *.flac *.wav *.aac *.ogg);;All Files (*)",
             "",
             QFileDialog.Option.DontUseNativeDialog,
         )
@@ -235,7 +235,7 @@ class FolderDropZone(QFrame):
     # ── drag-and-drop ─────────────────────────────────────────────────────────
 
     def _is_accepted(self, p: Path) -> bool:
-        if self._accept_m4b and p.suffix.lower() == ".m4b":
+        if p.suffix.lower() in {".m4b", ".mp3", ".m4a", ".flac", ".wav", ".aac", ".ogg"}:
             return True
         try:
             return p.is_dir()
@@ -697,6 +697,20 @@ class ChapterTable(QTableWidget):
                 | Qt.ItemFlag.ItemIsEditable
             )
             self.setItem(row, self.COL_TITLE, title_item)
+
+    def highlight_playing_chapter(self, row: int) -> None:
+        """Highlight the currently playing chapter."""
+        from PySide6.QtGui import QColor, QBrush
+        
+        normal_bg = QBrush()
+        highlight_bg = QBrush(QColor(0, 120, 215, 40)) # Subtle blue tint
+
+        for r in range(self.rowCount()):
+            bg = highlight_bg if r == row else normal_bg
+            for c in range(self.columnCount()):
+                item = self.item(r, c)
+                if item:
+                    item.setBackground(bg)
 
     def titles(self) -> list[str]:
         """Return the current title string for every row."""
