@@ -30,13 +30,14 @@ _ICON_STOP = "\u23f9"
 
 
 def _fmt_ms(ms: int) -> str:
-    """Format milliseconds as M:SS or H:MM:SS."""
-    s = max(0, ms) // 1000
-    h, rem = divmod(s, 3600)
+    """Format milliseconds as M:SS.mmm or H:MM:SS.mmm."""
+    total_s = max(0, ms) // 1000
+    millis = max(0, ms) % 1000
+    h, rem = divmod(total_s, 3600)
     m, sec = divmod(rem, 60)
     if h:
-        return f"{h}:{m:02d}:{sec:02d}"
-    return f"{m}:{sec:02d}"
+        return f"{h}:{m:02d}:{sec:02d}.{millis:03d}"
+    return f"{m}:{sec:02d}.{millis:03d}"
 
 
 class AudioPlayerWidget(QWidget):
@@ -247,8 +248,8 @@ class AudioPlayerWidget(QWidget):
         """Seek relative to current position."""
         if self._player.source().isEmpty():
             return
-        new_pos = max(0, self._player.position() + offset_ms)
-        self.seek_chapter(new_pos)
+        new_pos = max(0, min(self._player.position() + offset_ms, self._player.duration()))
+        self._player.setPosition(new_pos)
 
     def set_dark_mode(self, dark_mode: bool) -> None:
         """Update SVG icons for buttons."""
