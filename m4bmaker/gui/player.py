@@ -82,7 +82,7 @@ class AudioPlayerWidget(QWidget):
         self._play_btn = QPushButton(_ICON_PLAY)
         self._play_btn.setObjectName("playerPlayBtn")
         self._play_btn.setStyleSheet("padding: 0px;")
-        self._play_btn.setFixedSize(48, 48)
+        self._play_btn.setFixedSize(46, 46)
         self._play_btn.setToolTip("Play / Pause")
         self._play_btn.clicked.connect(self._toggle_play)
 
@@ -143,6 +143,16 @@ class AudioPlayerWidget(QWidget):
         self._player.positionChanged.connect(self._on_position_changed)
         self._player.durationChanged.connect(self._on_duration_changed)
         self._player.playbackStateChanged.connect(self._on_state_changed)
+        self._player.errorOccurred.connect(self._on_error)
+        self._player.mediaStatusChanged.connect(self._on_status)
+
+    def _on_error(self, error, error_string):
+        import logging
+        logging.getLogger(__name__).error(f"Player Error {error}: {error_string}")
+
+    def _on_status(self, status):
+        import logging
+        logging.getLogger(__name__).info(f"Player Status: {status}")
 
         self._update_buttons(QMediaPlayer.PlaybackState.StoppedState)
 
