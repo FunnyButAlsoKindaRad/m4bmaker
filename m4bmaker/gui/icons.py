@@ -129,7 +129,8 @@ def load_svg_icon(svg_text: str, color: str, size: int = 32) -> QIcon:
     
     h = hashlib.md5(svg_text.encode("utf-8")).hexdigest()
     path = os.path.join(tempfile.gettempdir(), f"m4bmaker_icon_{h}.svg")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(svg_text)
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(svg_text)
         
     return QIcon(path)
