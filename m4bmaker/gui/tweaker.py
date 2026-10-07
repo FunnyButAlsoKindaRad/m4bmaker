@@ -94,7 +94,7 @@ class IconTweakerDialog(QDialog):
         pb = max(0, -oy)
         pl = max(0, ox)
         pr = max(0, -ox)
-        style = f"padding: {pt}px {pr}px {pb}px {pl}px;"
+        style = f"padding: {pt}px {pr}px {pb}px {pl}px; min-width: {bw}px; min-height: {bh}px; max-width: {bw}px; max-height: {bh}px;"
         
         idx = self._target_combo.currentIndex()
         if idx == 0:

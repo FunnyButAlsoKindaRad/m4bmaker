@@ -278,10 +278,10 @@ class AudioPlayerWidget(QWidget):
         self._color = color
         
         # Default states
-        self._rw_btn.setIcon(load_svg_icon(REWIND_SVG, color, 128))
+        self._rw_btn.setIcon(load_svg_icon(REWIND_SVG, color, 24))
         self._rw_btn.setIconSize(QSize(24, 24))
         
-        self._ff_btn.setIcon(load_svg_icon(FAST_FORWARD_SVG, color, 128))
+        self._ff_btn.setIcon(load_svg_icon(FAST_FORWARD_SVG, color, 24))
         self._ff_btn.setIconSize(QSize(24, 24))
         
         self._update_buttons(self._player.playbackState())
@@ -323,8 +323,10 @@ class AudioPlayerWidget(QWidget):
             from m4bmaker.gui.icons import load_svg_icon
             from m4bmaker.gui.svg_icons import PLAY_SVG, PAUSE_SVG
             svg = PAUSE_SVG if playing else PLAY_SVG
-            self._play_btn.setIcon(load_svg_icon(svg, self._color, 128))
+            self._play_btn.setIcon(load_svg_icon(svg, self._color, 28))
             self._play_btn.setIconSize(QSize(28, 28))
             self._play_btn.setText("") # Remove text if SVG is used
+            self._play_btn.update()
+            self._play_btn.setToolTip("Pause" if playing else "Play")
         else:
             self._play_btn.setText(_ICON_PAUSE if playing else _ICON_PLAY)

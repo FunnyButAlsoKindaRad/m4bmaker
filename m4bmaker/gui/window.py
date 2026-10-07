@@ -311,10 +311,10 @@ class MainWindow(QMainWindow):
             from PySide6.QtCore import QSize
             color = "#f0f0f0" if self._dark_mode else "#1a1a1a"
             if hasattr(self, "_ch_prev_btn"):
-                self._ch_prev_btn.setIcon(load_svg_icon(PREVIOUS_CHAPTER_SVG, color, 128))
+                self._ch_prev_btn.setIcon(load_svg_icon(PREVIOUS_CHAPTER_SVG, color, 20))
                 self._ch_prev_btn.setIconSize(QSize(20, 20))
             if hasattr(self, "_ch_next_btn"):
-                self._ch_next_btn.setIcon(load_svg_icon(NEXT_CHAPTER_SVG, color, 128))
+                self._ch_next_btn.setIcon(load_svg_icon(NEXT_CHAPTER_SVG, color, 20))
                 self._ch_next_btn.setIconSize(QSize(20, 20))
 
     def _on_job_updated(self, _job_id: object) -> None:
