@@ -52,18 +52,9 @@ def load_audiobook(
         files = scan_audio_files(source)
         cover = find_cover(source)
 
-    # Check for state file
-    folder_to_search = source if isinstance(source, Path) and source.is_dir() else (source[0].parent if isinstance(source, list) and source else None)
-    state_file = find_latest_state(folder_to_search) if folder_to_search else None
-    
     loaded_prefs = {}
-    if state_file:
-        metadata, chapters, loaded_cover, loaded_prefs = load_state(state_file, files)
-        if loaded_cover:
-            cover = loaded_cover
-    else:
-        metadata = BookMetadata()
-        chapters = []
+    metadata = BookMetadata()
+    chapters = []
 
     if not chapters:
         chapters = build_chapters(files, ffprobe, progress_fn=progress_fn)

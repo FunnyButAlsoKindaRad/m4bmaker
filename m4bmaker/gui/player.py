@@ -56,8 +56,8 @@ class AudioPlayerWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self._player = QMediaPlayer(self)
-        self._audio_out = QAudioOutput(self)
+        self._player = QMediaPlayer()
+        self._audio_out = QAudioOutput()
         self._player.setAudioOutput(self._audio_out)
         self._audio_out.setVolume(1.0)
 
@@ -147,6 +147,7 @@ class AudioPlayerWidget(QWidget):
         self._player.mediaStatusChanged.connect(self._on_status)
 
     def _on_error(self, error, error_string):
+        self._time_lbl.setText(f"Err: {error_string}")
         import logging
         logging.getLogger(__name__).error(f"Player Error {error}: {error_string}")
 
@@ -165,7 +166,7 @@ class AudioPlayerWidget(QWidget):
         instead (avoids unnecessary reloading when navigating chapters inside
         a single .m4b file).
         """
-        new_url = QUrl.fromLocalFile(str(path))
+        new_url = QUrl.fromLocalFile(str(path.resolve()))
         if self._player.source() == new_url:
             self.seek_chapter(start_ms)
             return
@@ -180,7 +181,7 @@ class AudioPlayerWidget(QWidget):
         Use this when selecting a chapter row should preview position
         but not auto-start audio.
         """
-        new_url = QUrl.fromLocalFile(str(path))
+        new_url = QUrl.fromLocalFile(str(path.resolve()))
         if self._player.source() == new_url:
             self._cancel_pending_seek()
             self._player.setPosition(start_ms)
