@@ -1992,7 +1992,6 @@ class MainWindow(QMainWindow):
             "",
             "m4bmaker State (*.json);;All Files (*)",
             "",
-            QFileDialog.Option.DontUseNativeDialog,
         )
         if not path:
             return

@@ -167,7 +167,6 @@ class FolderDropZone(QFrame):
                 "",
                 "Audio Files (*.m4b *.mp3 *.m4a *.flac *.wav *.aac *.ogg);;All Files (*)",
                 "",
-                QFileDialog.Option.DontUseNativeDialog,
             )
             self._handle_m4b_path(path)
 
@@ -223,7 +222,6 @@ class FolderDropZone(QFrame):
             "",
             "Audio Files (*.m4b *.mp3 *.m4a *.flac *.wav *.aac *.ogg);;All Files (*)",
             "",
-            QFileDialog.Option.DontUseNativeDialog,
         )
         self._handle_m4b_path(path)
 
