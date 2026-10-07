@@ -118,26 +118,18 @@ def dark_mode_icon(dark_mode: bool, size: int = 16) -> QIcon:
 
 
 def load_svg_icon(svg_text: str, color: str, size: int = 32) -> QIcon:
-    """Load an SVG icon from a string, injecting the foreground color."""
-    if not QSvgRenderer:
-        return QIcon()
-
-    # Inject fill color into the root SVG tag. This assumes the SVG has a <svg> tag.
-    # We replace <svg with <svg fill="{color}"
-    if "<svg " in svg_text:
-        colored_svg = svg_text.replace("<svg ", f'<svg fill="{color}" ', 1)
-    elif "<svg>" in svg_text:
-        colored_svg = svg_text.replace("<svg>", f'<svg fill="{color}">', 1)
-    else:
-        colored_svg = svg_text
-
-    pixmap = _canvas(size)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    import re
+    import tempfile
+    import os
+    import hashlib
+    from PySide6.QtGui import QIcon
     
-    renderer = QSvgRenderer(colored_svg.encode("utf-8"))
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    renderer.render(painter)
-    painter.end()
-
-    return QIcon(pixmap)
+    svg_text = re.sub(r'\b(?:width|height)="[^"]*"', "", svg_text)
+    svg_text = svg_text.replace("<svg ", f'<svg fill="{color}" ')
+    
+    h = hashlib.md5(svg_text.encode("utf-8")).hexdigest()
+    path = os.path.join(tempfile.gettempdir(), f"m4bmaker_icon_{h}.svg")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(svg_text)
+        
+    return QIcon(path)

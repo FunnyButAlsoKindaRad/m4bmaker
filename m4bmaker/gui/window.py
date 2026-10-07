@@ -261,6 +261,11 @@ class MainWindow(QMainWindow):
         about_action = QAction("About m4Bookmaker", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
+        
+        self._tweaker_act = QAction("Icon Tweaker...", self)
+        self._tweaker_act.setShortcut("Ctrl+Shift+T")
+        self._tweaker_act.triggered.connect(self._on_tweaker)
+        help_menu.addAction(self._tweaker_act)
 
         help_menu.addSeparator()
 
@@ -339,6 +344,11 @@ class MainWindow(QMainWindow):
         (osascript on macOS, Qt DontUseNativeDialog elsewhere) is used.
         """
         self._folder_zone._browse_m4b()
+
+    def _on_tweaker(self) -> None:
+        from m4bmaker.gui.tweaker import IconTweakerDialog
+        dlg = IconTweakerDialog(self, self)
+        dlg.show()
 
     def _show_about(self) -> None:
         dlg = QDialog(self)
