@@ -143,6 +143,7 @@ class AudioPlayerWidget(QWidget):
         self._player.positionChanged.connect(self._on_position_changed)
         self._player.durationChanged.connect(self._on_duration_changed)
         self._player.playbackStateChanged.connect(self._on_state_changed)
+        self._player.mediaStatusChanged.connect(lambda status: self._update_buttons())
         self._player.errorOccurred.connect(self._on_error)
         self._player.mediaStatusChanged.connect(self._on_status)
 
@@ -304,7 +305,7 @@ class AudioPlayerWidget(QWidget):
         if not self._seeking:
             self._slider.setValue(position_ms)
         duration = self._player.duration()
-        self._time_lbl.setText(f"{_fmt_ms(position_ms)} / {_fmt_ms(duration)}")
+        self._time_lbl.setText(f"{_fmt_ms(position_ms)} / {_fmt_ms(duration)} [{self._player.playbackState()}]")
         self.position_changed.emit(position_ms)
 
     def _on_duration_changed(self, duration_ms: int) -> None:
@@ -314,7 +315,8 @@ class AudioPlayerWidget(QWidget):
         self._update_buttons(state)
 
     def _update_buttons(self, state: QMediaPlayer.PlaybackState) -> None:
-        playing = state == QMediaPlayer.PlaybackState.PlayingState
+        playing = self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        self._time_lbl.setText(f"State: {state}")
         
         if hasattr(self, '_color'):
             from PySide6.QtCore import QSize

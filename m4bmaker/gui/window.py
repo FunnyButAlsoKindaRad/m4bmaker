@@ -793,6 +793,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(ch_tools_row)
 
         self._player = AudioPlayerWidget()
+        from PySide6.QtWidgets import QSizePolicy
+        
         self._player.position_changed.connect(self._on_playback_progress)
         self._ch_prev_btn = QPushButton()
         self._ch_prev_btn.setObjectName("playerPrevBtn")
