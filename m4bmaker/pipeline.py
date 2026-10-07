@@ -53,7 +53,8 @@ def load_audiobook(
         cover = find_cover(source)
 
     # Check for state file
-    state_file = find_latest_state(source) if isinstance(source, Path) and source.is_dir() else None
+    folder_to_search = source if isinstance(source, Path) and source.is_dir() else (source[0].parent if isinstance(source, list) and source else None)
+    state_file = find_latest_state(folder_to_search) if folder_to_search else None
     
     loaded_prefs = {}
     if state_file:

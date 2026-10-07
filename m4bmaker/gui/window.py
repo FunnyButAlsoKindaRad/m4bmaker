@@ -216,6 +216,11 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        load_state_action = QAction("Load Project State\u2026", self)
+        load_state_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        load_state_action.triggered.connect(self._on_load_state)
+        file_menu.addAction(load_state_action)
+
         save_state_action = QAction("Save Project State", self)
         save_state_action.setShortcut(QKeySequence.StandardKey.Save)
         save_state_action.triggered.connect(self._on_save_state)
@@ -1975,6 +1980,36 @@ class MainWindow(QMainWindow):
             if ms is not None:
                 ch.start_time = ms / 1000.0
         return chapters
+
+    def _on_load_state(self) -> None:
+        if self._book is None:
+            QMessageBox.warning(self, "No Audio Loaded", "Please load an audio file or folder first before loading a project state.")
+            return
+            
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Project State",
+            "",
+            "m4bmaker State (*.json);;All Files (*)",
+            "",
+            QFileDialog.Option.DontUseNativeDialog,
+        )
+        if not path:
+            return
+            
+        from m4bmaker.state import load_state
+        meta, chapters, cover, prefs = load_state(Path(path), self._book.files)
+        
+        self._book.metadata = meta
+        if chapters:
+            self._book.chapters = chapters
+        if cover:
+            self._book.cover = cover
+        if prefs:
+            self._book.prefs = prefs
+            
+        self._apply_book_to_ui(self._book)
+        self._set_status(f"Loaded project state from {Path(path).name}")
 
     def _on_save_state(self) -> None:
         if self._book is None or not self._folder_zone.path():
