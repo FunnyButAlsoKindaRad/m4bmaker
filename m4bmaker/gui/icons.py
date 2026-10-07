@@ -116,10 +116,16 @@ def dark_mode_icon(dark_mode: bool, size: int = 16) -> QIcon:
     """
     return sun_icon(_FG_DARK, size) if dark_mode else moon_icon(_FG_LIGHT, size)
 
+import re
 def load_svg_icon(svg_text: str, color: str, size: int = 128, offset_x: float = 0.0, offset_y: float = 0.0) -> QIcon:
+    import re
+    from PySide6.QtGui import QIcon, QPixmap, QPainter
+    from PySide6.QtSvg import QSvgRenderer
+    from PySide6.QtCore import Qt, QByteArray, QRectF
+    
     svg_text = re.sub(r'\b(?:width|height)="[^"]*"', "", svg_text)
-    svg_text = svg_text.replace('<svg ', f'<svg fill="{color}" ')
-    svg_text = svg_text.replace('<path ', f'<path fill="{color}" ')
+    svg_text = svg_text.replace("<svg ", f'<svg fill="{color}" ')
+    svg_text = svg_text.replace("<path ", f'<path fill="{color}" ')
     
     renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
     
@@ -139,4 +145,3 @@ def load_svg_icon(svg_text: str, color: str, size: int = 128, offset_x: float = 
     painter.end()
     
     return QIcon(pixmap)
-
