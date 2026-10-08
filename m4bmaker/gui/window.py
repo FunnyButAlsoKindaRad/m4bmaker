@@ -782,12 +782,12 @@ class MainWindow(QMainWindow):
         ch_tools_row.addWidget(self._ch_remove_btn)
         
         ch_tools_row.addSpacing(12)
-        ch_tools_row.addWidget(QLabel("Bulk Offset (sec):"))
+        ch_tools_row.addWidget(QLabel("Offset (sec):"))
         self._offset_spin = QDoubleSpinBox()
         self._offset_spin.setRange(-36000, 36000)
         ch_tools_row.addWidget(self._offset_spin)
-        offset_btn = QPushButton("Shift All")
-        offset_btn.clicked.connect(self._on_shift_all_chapters)
+        offset_btn = QPushButton("Shift")
+        offset_btn.clicked.connect(self._on_shift_chapters)
         ch_tools_row.addWidget(offset_btn)
         ch_tools_row.addStretch()
         layout.addLayout(ch_tools_row)
@@ -1467,7 +1467,7 @@ class MainWindow(QMainWindow):
             return
             
         self._offset_spin.setValue(diff_s)
-        self._on_shift_all_chapters()
+        self._on_shift_chapters()
 
     def _on_playback_progress(self, local_ms: int) -> None:
         if self._book is None or not self._book.chapters:
@@ -1746,17 +1746,36 @@ class MainWindow(QMainWindow):
         self._chapter_table.populate(self._book.chapters)
         self._chapter_table.setCurrentCell(i + 1, ChapterTable.COL_TITLE)
 
-    def _on_shift_all_chapters(self) -> None:
+    def _on_shift_chapters(self) -> None:
         if not self._book or not self._book.chapters:
             return
         offset = self._offset_spin.value()
         if offset == 0.0:
             return
+        
+        selected_rows = {idx.row() for idx in self._chapter_table.selectionModel().selectedRows()}
+        if not selected_rows:
+            self._set_status("Please select one or more chapters to shift.")
+            return
+            
         self._sync_titles_from_table()
         self._sync_times_from_table()
-        for ch in self._book.chapters:
-            ch.start_time = max(0.0, ch.start_time + offset)
+        
+        for row in selected_rows:
+            if row < len(self._book.chapters):
+                ch = self._book.chapters[row]
+                ch.start_time = max(0.0, ch.start_time + offset)
+                
         self._chapter_table.populate(self._book.chapters)
+        
+        # Reselect the shifted rows
+        self._chapter_table.clearSelection()
+        for row in selected_rows:
+            for col in range(self._chapter_table.columnCount()):
+                item = self._chapter_table.item(row, col)
+                if item:
+                    item.setSelected(True)
+            
         self._chapters_merged = True
         self._update_chapter_buttons()
 
