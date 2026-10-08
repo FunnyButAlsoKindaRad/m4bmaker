@@ -351,8 +351,8 @@ class MainWindow(QMainWindow):
 
     def _on_tweaker(self) -> None:
         from m4bmaker.gui.tweaker import IconTweakerDialog
-        dlg = IconTweakerDialog(self, self)
-        dlg.show()
+        self._tweaker_dlg = IconTweakerDialog(self, self)
+        self._tweaker_dlg.show()
 
     def _show_about(self) -> None:
         dlg = QDialog(self)
