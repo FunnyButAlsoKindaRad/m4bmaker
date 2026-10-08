@@ -1129,8 +1129,18 @@ class MainWindow(QMainWindow):
         self._progress_bar.setVisible(False)
         self._update_controls()
         self._set_status("Split failed.")
-        if self.isVisible():
-            QMessageBox.critical(self, "Split Error", msg)
+        if not self.isVisible():
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setWindowTitle("Split Error")
+        lines = msg.split("\n", 1)
+        box.setText(lines[0])
+        if len(lines) > 1:
+            box.setDetailedText(msg)
+        else:
+            box.setInformativeText("Press Ctrl+C to copy this error.")
+        box.exec()
 
     def _collect_job(self):
         """Snapshot current GUI state as a Job for the queue."""
@@ -1860,8 +1870,19 @@ class MainWindow(QMainWindow):
         self._update_controls()
         # No modal on a closed window: the user abandoned this scan, and a
         # dialog parented to a deletion-pending window is fatal under Qt.
-        if self.isVisible():
-            QMessageBox.critical(self, "Load Error", msg)
+        if not self.isVisible():
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setWindowTitle("Load Error")
+        # Split message into a short title and the full copyable traceback
+        lines = msg.split("\n", 1)
+        box.setText(lines[0])
+        if len(lines) > 1:
+            box.setDetailedText(msg)
+        else:
+            box.setInformativeText("Press Ctrl+C to copy this error.")
+        box.exec()
 
     def _on_api_prefs(self) -> None:
         from m4bmaker.gui.api_prefs_dialog import ApiPrefsDialog
@@ -2116,5 +2137,15 @@ class MainWindow(QMainWindow):
         self._progress_bar.setVisible(False)
         self._set_status("Conversion failed.")
         self._update_controls()
-        if self.isVisible():
-            QMessageBox.critical(self, "Conversion Error", msg)
+        if not self.isVisible():
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setWindowTitle("Conversion Error")
+        lines = msg.split("\n", 1)
+        box.setText(lines[0])
+        if len(lines) > 1:
+            box.setDetailedText(msg)
+        else:
+            box.setInformativeText("Press Ctrl+C to copy this error.")
+        box.exec()

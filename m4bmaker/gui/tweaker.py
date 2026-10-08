@@ -36,7 +36,12 @@ class IconTweakerDialog(QDialog):
         self._code_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self._code_lbl)
         
+        self._copy_btn = QPushButton("Copy Settings to Clipboard")
+        self._copy_btn.clicked.connect(self._copy_settings)
+        layout.addWidget(self._copy_btn)
+        
         self._on_target_changed(0)
+
 
     def _make_row(self, parent_layout, label_text, min_val, max_val):
         row = QHBoxLayout()
@@ -113,3 +118,22 @@ class IconTweakerDialog(QDialog):
             btn.setStyleSheet(style)
             
         self._code_lbl.setText(f"Code for {name}:\nsetFixedSize({bw}, {bh})\nsetIconSize(QSize({iw}, {ih}))\nsetStyleSheet('{style}')")
+
+    def _copy_settings(self):
+        from PySide6.QtGui import QGuiApplication
+        cb = QGuiApplication.clipboard()
+        
+        target = self._target_combo.currentText()
+        bw = self._btn_w_spin.value()
+        bh = self._btn_h_spin.value()
+        iw = self._icon_w_spin.value()
+        ih = self._icon_h_spin.value()
+        ox = self._offset_x_spin.value()
+        oy = self._offset_y_spin.value()
+        
+        text = f"Target: {target}\nButton: {bw}x{bh}\nIcon: {iw}x{ih}\nOffset: X={ox}, Y={oy}"
+        cb.setText(text)
+        self._copy_btn.setText("Copied!")
+        
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(2000, lambda: self._copy_btn.setText("Copy Settings to Clipboard"))

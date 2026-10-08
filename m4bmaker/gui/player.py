@@ -305,7 +305,7 @@ class AudioPlayerWidget(QWidget):
         if not self._seeking:
             self._slider.setValue(position_ms)
         duration = self._player.duration()
-        self._time_lbl.setText(f"{_fmt_ms(position_ms)} / {_fmt_ms(duration)} [{self._player.playbackState()}]")
+        self._time_lbl.setText(f"{_fmt_ms(position_ms)} / {_fmt_ms(duration)}")
         self.position_changed.emit(position_ms)
 
     def _on_duration_changed(self, duration_ms: int) -> None:
@@ -316,8 +316,6 @@ class AudioPlayerWidget(QWidget):
 
     def _update_buttons(self, state: QMediaPlayer.PlaybackState) -> None:
         playing = self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
-        self._time_lbl.setText(f"State: {state}")
-        
         if hasattr(self, '_color'):
             from PySide6.QtCore import QSize
             from m4bmaker.gui.icons import load_svg_icon
