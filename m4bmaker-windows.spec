@@ -8,6 +8,8 @@ pyside6_datas, pyside6_binaries, pyside6_hidden = collect_all("PySide6")
 ct2_datas, ct2_binaries, ct2_hidden = collect_all("ctranslate2")
 tok_datas, tok_binaries, tok_hidden = collect_all("tokenizers")
 fw_datas, fw_binaries, fw_hidden = collect_all("faster_whisper")
+hf_datas, hf_binaries, hf_hidden = collect_all("huggingface_hub")
+cert_datas, cert_binaries, cert_hidden = collect_all("certifi")
 
 # Modules this app never uses — strip to reduce bundle size dramatically.
 _STRIP = [
@@ -46,12 +48,12 @@ app_datas = collect_data_files(
     includes=["gui/resources/*"],
 )
 
-all_datas = pyside6_datas + app_datas + ct2_datas + tok_datas + fw_datas
-all_binaries = pyside6_binaries + ct2_binaries + tok_binaries + fw_binaries + [
+all_datas = pyside6_datas + app_datas + ct2_datas + tok_datas + fw_datas + hf_datas + cert_datas
+all_binaries = pyside6_binaries + ct2_binaries + tok_binaries + fw_binaries + hf_binaries + cert_binaries + [
     (_FFMPEG_BIN, "."),
     (_FFPROBE_BIN, "."),
 ]
-all_hidden = pyside6_hidden + ct2_hidden + tok_hidden + fw_hidden + [
+all_hidden = pyside6_hidden + ct2_hidden + tok_hidden + fw_hidden + hf_hidden + cert_hidden + [
     "m4bmaker",
     "m4bmaker.chapters",
     "m4bmaker.chapters_file",
@@ -88,6 +90,10 @@ all_hidden = pyside6_hidden + ct2_hidden + tok_hidden + fw_hidden + [
     "mutagen.ogg",
     "mutagen.id3",
     "natsort",
+    "certifi",
+    "huggingface_hub",
+    "urllib.request",
+    "ssl",
 ]
 
 a = Analysis(

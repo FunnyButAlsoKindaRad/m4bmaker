@@ -2362,10 +2362,19 @@ class MainWindow(QMainWindow):
             self._set_status("No valid audio files found for alignment.")
             return
 
-        search_win = float(_prefs_get("stt_search_window_s") or 180.0)
-        snap_silence = bool(_prefs_get("stt_snap_silence") if _prefs_get("stt_snap_silence") is not None else True)
-        silence_thresh = float(_prefs_get("stt_silence_thresh_db") or -35.0)
-        silence_min_dur = float(_prefs_get("stt_silence_min_dur_s") or 0.4)
+        search_win_min = _prefs_get("stt_window_min")
+        if search_win_min is not None:
+            search_win = float(search_win_min) * 60.0
+        else:
+            search_win = float(_prefs_get("stt_search_window_s") or 180.0)
+
+        snap_silence = bool(
+            _prefs_get("stt_silence_snap")
+            if _prefs_get("stt_silence_snap") is not None
+            else (_prefs_get("stt_snap_silence") if _prefs_get("stt_snap_silence") is not None else True)
+        )
+        silence_thresh = float(_prefs_get("stt_noise_db") or _prefs_get("stt_silence_thresh_db") or -35.0)
+        silence_min_dur = float(_prefs_get("stt_min_silence_s") or _prefs_get("stt_silence_min_dur_s") or 0.3)
 
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(0)
@@ -2395,7 +2404,7 @@ class MainWindow(QMainWindow):
         if not isinstance(result, AlignmentResult) or not result.success:
             return
 
-        row = result.chapter_index - 1
+        row = result.row if result.row is not None else (result.chapter_index - 1)
         if self._book and 0 <= row < len(self._book.chapters):
             old_time = self._book.chapters[row].start_time
             self._book.chapters[row].start_time = result.aligned_time_s
@@ -2408,7 +2417,11 @@ class MainWindow(QMainWindow):
         self._align_worker = None
         succ = sum(1 for r in results if getattr(r, "success", False))
         total = len(results)
-        self._set_status(f"Smart Alignment complete: {succ}/{total} chapter(s) aligned.")
+        if succ == 0 and total > 0:
+            first_err = getattr(results[0], "error_message", "Speech match not found")
+            self._set_status(f"Alignment completed: 0/{total} aligned ({first_err}).")
+        else:
+            self._set_status(f"Smart Alignment complete: {succ}/{total} chapter(s) aligned.")
 
     def _on_align_cancelled(self) -> None:
         self._progress_bar.setVisible(False)

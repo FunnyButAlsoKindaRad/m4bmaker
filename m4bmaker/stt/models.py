@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import shutil
+import ssl
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -39,6 +43,58 @@ SUPPORTED_MODELS = {
 DEFAULT_MODEL = "tiny.en"
 
 
+def _create_ssl_context() -> ssl.SSLContext:
+    """Create an SSL context prioritizing certifi if available, then system CA."""
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+
+        ca = certifi.where()
+        if os.path.isfile(ca):
+            ctx.load_verify_locations(ca)
+    except Exception:
+        pass
+    return ctx
+
+
+def _download_file_stream(
+    url: str,
+    dest_path: Path,
+    chunk_size: int = 128 * 1024,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> None:
+    """Download a file with HTTP streaming into a temporary file before atomic rename."""
+    temp_path = dest_path.with_name(dest_path.name + ".download")
+    headers = {"User-Agent": "m4Bookmaker/1.0 (https://github.com/FunnyButAlsoKindaRad/m4bmaker)"}
+    req = urllib.request.Request(url, headers=headers)
+    ctx = _create_ssl_context()
+
+    try:
+        resp = urllib.request.urlopen(req, context=ctx, timeout=30)
+    except ssl.SSLCertVerificationError:
+        _log.warning("SSL verification failed for %s, retrying with unverified context", url)
+        unverified_ctx = ssl._create_unverified_context()
+        resp = urllib.request.urlopen(req, context=unverified_ctx, timeout=30)
+
+    try:
+        total_size = int(resp.headers.get("Content-Length", 0))
+        downloaded = 0
+        with open(temp_path, "wb") as f:
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback:
+                    progress_callback(downloaded, total_size)
+        resp.close()
+        temp_path.replace(dest_path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
 def get_models_dir() -> Path:
     """Return the directory where STT models are stored.
 
@@ -69,6 +125,13 @@ def get_models_dir() -> Path:
     if portable_dir.is_dir():
         return portable_dir
 
+    if getattr(sys, "frozen", False):
+        try:
+            portable_dir.mkdir(parents=True, exist_ok=True)
+            return portable_dir
+        except Exception:
+            pass
+
     # Standard user app data
     default_dir = Path(user_data_dir("m4bmaker")) / "models"
     default_dir.mkdir(parents=True, exist_ok=True)
@@ -77,21 +140,32 @@ def get_models_dir() -> Path:
 
 def get_model_path(model_name: str) -> Path:
     """Return the expected directory path for a model."""
-    root = get_models_dir()
-    # Normalize repo name or friendly name
     clean_name = model_name.split("/")[-1].replace("faster-whisper-", "")
-    return root / clean_name
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).parent
+    else:
+        exe_dir = Path(__file__).resolve().parent.parent.parent
+
+    portable_path = exe_dir / "models" / clean_name
+    if portable_path.is_dir():
+        return portable_path
+
+    return get_models_dir() / clean_name
 
 
 def is_model_downloaded(model_name: str) -> bool:
-    """Check if model files (specifically model.bin) exist on disk."""
+    """Check if model files exist on disk."""
     path = get_model_path(model_name)
     if not path.is_dir():
         return False
-    # Check for core CTranslate2 weights
-    has_bin = (path / "model.bin").is_file()
-    has_vocab = (path / "vocabulary.txt").is_file() or (path / "vocabulary.json").is_file()
-    return has_bin and has_vocab
+    # Check for core CTranslate2 weights and vocabulary
+    has_bin = (path / "model.bin").is_file() and (path / "model.bin").stat().st_size > 1000
+    has_vocab = (
+        ((path / "vocabulary.txt").is_file() and (path / "vocabulary.txt").stat().st_size > 0)
+        or ((path / "vocabulary.json").is_file() and (path / "vocabulary.json").stat().st_size > 0)
+    )
+    has_config = (path / "config.json").is_file() and (path / "config.json").stat().st_size > 0
+    return has_bin and has_vocab and has_config
 
 
 def get_installed_model_size_mb(model_name: str) -> float:
@@ -120,9 +194,11 @@ def download_model(
     model_name: str = DEFAULT_MODEL,
     progress_fn: Optional[Callable[[float, str], None]] = None,
 ) -> Path:
-    """Download the specified faster-whisper model from Hugging Face Hub."""
-    from huggingface_hub import snapshot_download
+    """Download the specified faster-whisper model from Hugging Face Hub.
 
+    Uses direct HTTP streaming first (no Hugging Face token or API key required),
+    falling back to snapshot_download if needed.
+    """
     target_dir = get_model_path(model_name)
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -130,16 +206,75 @@ def download_model(
     repo_id = info.get("repo_id", f"Systran/faster-whisper-{model_name}")
 
     if progress_fn:
-        progress_fn(0.1, f"Downloading {model_name} from Hugging Face...")
+        progress_fn(0.02, f"Connecting to Hugging Face ({model_name})...")
 
-    # snapshot_download automatically checks cache / resumes downloads
-    snapshot_download(
-        repo_id=repo_id,
-        local_dir=str(target_dir),
-        local_dir_use_symlinks=False,
-    )
+    # Strategy 1: Direct HTTP streaming download
+    files_to_download = ["config.json", "tokenizer.json", "vocabulary.txt", "model.bin"]
+    approx_mb = info.get("approx_size_mb", 75)
+    approx_bytes = approx_mb * 1024 * 1024
+
+    direct_failed = False
+    try:
+        total_downloaded = 0
+        for fname in files_to_download:
+            dest_file = target_dir / fname
+            if dest_file.is_file() and dest_file.stat().st_size > 0:
+                total_downloaded += dest_file.stat().st_size
+                continue
+
+            url = f"https://huggingface.co/{repo_id}/resolve/main/{fname}"
+
+            def on_chunk(file_bytes: int, file_total: int, _fn: str = fname) -> None:
+                overall = min(0.98, max(0.05, (total_downloaded + file_bytes) / approx_bytes))
+                curr_mb = (total_downloaded + file_bytes) / (1024 * 1024)
+                if progress_fn:
+                    progress_fn(overall, f"Downloading {_fn} ({curr_mb:.1f} MB / ~{approx_mb} MB)...")
+
+            try:
+                _download_file_stream(url, dest_file, progress_callback=on_chunk)
+                total_downloaded += dest_file.stat().st_size
+            except urllib.error.HTTPError as http_err:
+                if fname == "vocabulary.txt" and http_err.code == 404:
+                    alt_fname = "vocabulary.json"
+                    alt_url = f"https://huggingface.co/{repo_id}/resolve/main/{alt_fname}"
+                    alt_dest = target_dir / alt_fname
+                    _download_file_stream(alt_url, alt_dest)
+                    total_downloaded += alt_dest.stat().st_size
+                else:
+                    raise
+
+        if is_model_downloaded(model_name):
+            if progress_fn:
+                progress_fn(1.0, f"Model '{model_name}' ready.")
+            return target_dir
+    except Exception as exc:
+        _log.warning(
+            "Direct download for %s failed (%s), falling back to snapshot_download",
+            repo_id,
+            exc,
+        )
+        direct_failed = True
+
+    # Strategy 2: huggingface_hub snapshot_download fallback
+    if direct_failed or not is_model_downloaded(model_name):
+        try:
+            if progress_fn:
+                progress_fn(0.2, f"Downloading {model_name} via Hugging Face Hub...")
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id=repo_id,
+                local_dir=str(target_dir),
+                local_dir_use_symlinks=False,
+            )
+        except Exception as exc:
+            _log.error("All download methods failed for %s: %s", model_name, exc)
+            raise RuntimeError(
+                f"Could not download model '{model_name}': {exc}.\n\n"
+                f"Note: Faster-Whisper models are open-source and do NOT require an API key or login.\n"
+                f"You can also download files manually into:\n{target_dir}"
+            ) from exc
 
     if progress_fn:
-        progress_fn(1.0, f"Model {model_name} ready.")
-
+        progress_fn(1.0, f"Model '{model_name}' ready.")
     return target_dir

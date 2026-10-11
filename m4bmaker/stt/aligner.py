@@ -9,7 +9,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 from m4bmaker.stt.models import DEFAULT_MODEL, get_model_path, is_model_downloaded
 from m4bmaker.stt.silence import snap_to_preceding_silence
@@ -47,6 +47,7 @@ class AlignmentResult:
     offset_s: float
     success: bool = True
     error_message: Optional[str] = None
+    row: Optional[int] = None
 
 
 def normalize_text(text: str) -> str:
@@ -106,10 +107,19 @@ class AudioAligner:
         model_name: str = DEFAULT_MODEL,
         device: str = "cpu",
         compute_type: str = "int8",
+        search_window_s: float = 180.0,
+        snap_to_silence: bool = True,
+        silence_thresh_db: float = -35.0,
+        silence_min_dur_s: float = 0.3,
+        **kwargs: Any,
     ) -> None:
         self.model_name = model_name
         self.device = device
         self.compute_type = compute_type
+        self.search_window_s = search_window_s
+        self.snap_to_silence = snap_to_silence
+        self.silence_thresh_db = silence_thresh_db
+        self.silence_min_dur_s = silence_min_dur_s
         self._model = None
 
     def _ensure_model(self) -> None:
@@ -126,12 +136,25 @@ class AudioAligner:
             load_target = self.model_name
 
         _log.info("Loading faster-whisper model '%s' on %s (%s)...", load_target, self.device, self.compute_type)
-        self._model = WhisperModel(
-            load_target,
-            device=self.device,
-            compute_type=self.compute_type,
-            download_root=str(model_path.parent),
-        )
+        try:
+            self._model = WhisperModel(
+                load_target,
+                device=self.device,
+                compute_type=self.compute_type,
+                download_root=str(model_path.parent),
+            )
+        except Exception as exc:
+            _log.warning(
+                "Loading faster-whisper with compute_type='%s' failed (%s); falling back to 'default'",
+                self.compute_type,
+                exc,
+            )
+            self._model = WhisperModel(
+                load_target,
+                device=self.device,
+                compute_type="default",
+                download_root=str(model_path.parent),
+            )
 
     def extract_audio_slice(
         self,
@@ -166,27 +189,64 @@ class AudioAligner:
         )
         return proc.stdout
 
-    def align_chapter(
+    def align(
         self,
-        file_path: Path,
-        chapter_index: int,
-        chapter_title: str,
-        estimated_time_s: float,
-        window_radius_s: float = 180.0,
-        enable_silence_snap: bool = True,
-        noise_db: float = -35.0,
-        min_silence_s: float = 0.3,
+        audio_path: Optional[Union[Path, str]] = None,
+        chapter_title: str = "",
+        chapter_index: int = 1,
+        estimated_time_s: float = 0.0,
+        file_path: Optional[Union[Path, str]] = None,
+        file_duration_s: Optional[float] = None,
+        search_window_s: Optional[float] = None,
+        window_radius_s: Optional[float] = None,
+        snap_to_silence: Optional[bool] = None,
+        enable_silence_snap: Optional[bool] = None,
+        silence_thresh_db: Optional[float] = None,
+        noise_db: Optional[float] = None,
+        silence_min_dur_s: Optional[float] = None,
+        min_silence_s: Optional[float] = None,
+        row: Optional[int] = None,
         ffmpeg_bin: Optional[str] = None,
+        **kwargs: Any,
     ) -> AlignmentResult:
         """Transcribe around estimated_time_s and pinpoint the spoken chapter title."""
         self._ensure_model()
 
-        slice_start_s = max(0.0, estimated_time_s - window_radius_s)
-        slice_dur_s = window_radius_s * 2.0
+        target_file = Path(audio_path if audio_path is not None else (file_path if file_path is not None else ""))
+        win_s = float(
+            search_window_s
+            if search_window_s is not None
+            else (window_radius_s if window_radius_s is not None else self.search_window_s)
+        )
+        snap = bool(
+            snap_to_silence
+            if snap_to_silence is not None
+            else (enable_silence_snap if enable_silence_snap is not None else self.snap_to_silence)
+        )
+        thresh_db = float(
+            silence_thresh_db
+            if silence_thresh_db is not None
+            else (noise_db if noise_db is not None else self.silence_thresh_db)
+        )
+        min_sil_s = float(
+            silence_min_dur_s
+            if silence_min_dur_s is not None
+            else (min_silence_s if min_silence_s is not None else self.silence_min_dur_s)
+        )
+        target_row = row if row is not None else (chapter_index - 1)
+
+        slice_start_s = max(0.0, estimated_time_s - win_s)
+        if file_duration_s is not None and file_duration_s > slice_start_s:
+            slice_dur_s = min(win_s * 2.0, file_duration_s - slice_start_s)
+        else:
+            slice_dur_s = win_s * 2.0
+
+        if slice_dur_s <= 0.1:
+            slice_dur_s = 1.0
 
         try:
             wav_bytes = self.extract_audio_slice(
-                file_path=file_path,
+                file_path=target_file,
                 start_s=slice_start_s,
                 duration_s=slice_dur_s,
                 ffmpeg_bin=ffmpeg_bin,
@@ -205,13 +265,14 @@ class AudioAligner:
                 offset_s=0.0,
                 success=False,
                 error_message=f"Audio slice extraction failed: {exc}",
+                row=target_row,
             )
 
-        # Transcribe with word timestamps
+        transcribe_lang = "en" if self.model_name.endswith(".en") else None
         segments, _ = self._model.transcribe(
             io.BytesIO(wav_bytes),
             word_timestamps=True,
-            language="en",
+            language=transcribe_lang,
             vad_filter=True,
         )
 
@@ -236,6 +297,7 @@ class AudioAligner:
                 offset_s=0.0,
                 success=False,
                 error_message="No words detected in audio window.",
+                row=target_row,
             )
 
         variants = get_title_search_variants(chapter_title, chapter_index)
@@ -260,7 +322,7 @@ class AudioAligner:
 
                 # Penalize distance from estimated time slightly so closer matches win ties
                 abs_time = slice_start_s + all_words[i].start
-                dist_penalty = min(0.15, abs(abs_time - estimated_time_s) / (window_radius_s * 10))
+                dist_penalty = min(0.15, abs(abs_time - estimated_time_s) / (win_s * 10))
                 adjusted_score = ratio - dist_penalty
 
                 if adjusted_score > best_score and ratio >= 0.70:
@@ -270,7 +332,6 @@ class AudioAligner:
 
         # If strict sequence matcher didn't find high confidence, check exact substring in words
         if best_match_idx is None:
-            # Check individual token match
             for target_phrase in variants:
                 target_tokens = target_phrase.split()
                 if not target_tokens:
@@ -300,6 +361,7 @@ class AudioAligner:
                 offset_s=0.0,
                 success=False,
                 error_message="Chapter title not found in speech transcript.",
+                row=target_row,
             )
 
         # Spoken time is start time of first word in match
@@ -314,13 +376,13 @@ class AudioAligner:
         aligned_time_s = spoken_time_s
         snapped = False
 
-        if enable_silence_snap:
+        if snap:
             silence_mid = snap_to_preceding_silence(
-                file_path=file_path,
+                file_path=target_file,
                 spoken_time_s=spoken_time_s,
                 search_before_s=8.0,
-                noise_db=noise_db,
-                min_duration_s=min_silence_s,
+                noise_db=thresh_db,
+                min_duration_s=min_sil_s,
                 ffmpeg_bin=ffmpeg_bin,
             )
             if silence_mid is not None and silence_mid <= spoken_time_s:
@@ -341,4 +403,8 @@ class AudioAligner:
             snapped_to_silence=snapped,
             offset_s=round(offset_s, 3),
             success=True,
+            row=target_row,
         )
+
+    # Backward-compatible alias
+    align_chapter = align

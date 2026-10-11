@@ -215,14 +215,20 @@ class SttSettingsDialog(QDialog):
         self._dl_btn.setEnabled(False)
         self._del_btn.setEnabled(False)
         self._progress_bar.setVisible(True)
-        self._progress_bar.setRange(0, 0)  # indeterminate until complete
-        self._status_lbl.setText(f"Downloading {model}…")
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._status_lbl.setText(f"Connecting to Hugging Face for {model}…")
         self._status_lbl.setStyleSheet("color: #2196f3;")
 
         self._download_worker = ModelDownloadWorker(model)
+        self._download_worker.progress.connect(self._on_download_progress)
         self._download_worker.finished_success.connect(self._on_download_success)
         self._download_worker.error.connect(self._on_download_error)
         self._download_worker.start()
+
+    def _on_download_progress(self, frac: float, msg: str) -> None:
+        self._progress_bar.setValue(int(frac * 100))
+        self._status_lbl.setText(msg)
 
     def _on_download_success(self, model: str) -> None:
         self._progress_bar.setVisible(False)
@@ -234,7 +240,16 @@ class SttSettingsDialog(QDialog):
         self._progress_bar.setVisible(False)
         self._dl_btn.setEnabled(True)
         self._update_model_status()
-        QMessageBox.critical(self, "Download Failed", f"Could not download model:\n{err_msg}")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setWindowTitle("Download Failed")
+        box.setText(f"Could not download model '{self._selected_model()}'.")
+        box.setInformativeText(
+            "Note: Faster-Whisper models are open-source and do NOT require an API key or login.\n\n"
+            f"You can also download files manually into:\n{get_models_dir()}"
+        )
+        box.setDetailedText(err_msg)
+        box.exec()
 
     def _on_delete_clicked(self) -> None:
         model = self._selected_model()
@@ -250,8 +265,16 @@ class SttSettingsDialog(QDialog):
 
     def _on_save(self) -> None:
         prefs.set("stt_model", self._selected_model())
-        prefs.set("stt_window_min", self._window_slider.value())
-        prefs.set("stt_silence_snap", self._snap_check.isChecked())
-        prefs.set("stt_noise_db", self._noise_spin.value())
-        prefs.set("stt_min_silence_s", round(self._min_silence_spin.value() / 1000.0, 3))
+        win_min = self._window_slider.value()
+        prefs.set("stt_window_min", win_min)
+        prefs.set("stt_search_window_s", float(win_min * 60))
+        snap = self._snap_check.isChecked()
+        prefs.set("stt_silence_snap", snap)
+        prefs.set("stt_snap_silence", snap)
+        noise = self._noise_spin.value()
+        prefs.set("stt_noise_db", noise)
+        prefs.set("stt_silence_thresh_db", noise)
+        min_sil = round(self._min_silence_spin.value() / 1000.0, 3)
+        prefs.set("stt_min_silence_s", min_sil)
+        prefs.set("stt_silence_min_dur_s", min_sil)
         self.accept()

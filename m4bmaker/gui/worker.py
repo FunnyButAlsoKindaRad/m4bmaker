@@ -437,6 +437,7 @@ class AlignWorker(QThread):
                     chapter_index=ch_idx,
                     estimated_time_s=task["estimated_s"],
                     file_duration_s=task.get("file_dur"),
+                    row=task.get("row"),
                 )
                 results.append(res)
                 self.chapter_aligned.emit(res)
