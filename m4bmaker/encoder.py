@@ -51,7 +51,7 @@ def _progress_reader(
             frac = min(1.0, current_ms / total_ms)
             if progress_callback is not None:
                 progress_callback(frac)
-            if sys.stdout is not None and sys.stdout.isatty():
+            if sys.stdout is not None and getattr(sys.stdout, "isatty", lambda: False)():
                 bar = _render_bar(frac, bar_width)
                 pct = int(frac * 100)
                 elapsed = _format_ms(current_ms)

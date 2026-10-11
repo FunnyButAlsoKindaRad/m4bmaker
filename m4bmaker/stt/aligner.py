@@ -35,6 +35,53 @@ _ROMAN_MAP = {
     "xi": 11, "xii": 12, "xiii": 13, "xiv": 14, "xv": 15, "xvi": 16, "xvii": 17, "xviii": 18, "xix": 19, "xx": 20,
 }
 
+_WORD_TO_NUM = {v: str(k) for k, v in _NUM_WORDS.items()}
+_ROMAN_TO_NUM = {k: str(v) for k, v in _ROMAN_MAP.items()}
+
+
+def canonical_token(tok: str) -> str:
+    """Normalize a token so numbers in word, roman, or digit form match uniformly."""
+    cleaned = tok.lower().strip()
+    if cleaned in _WORD_TO_NUM:
+        return _WORD_TO_NUM[cleaned]
+    if cleaned in _ROMAN_TO_NUM:
+        return _ROMAN_TO_NUM[cleaned]
+    return cleaned
+
+
+def compute_token_match(target_tokens: list[str], window_tokens: list[str]) -> tuple[float, bool]:
+    """Compare a window of tokens against target tokens with canonical number normalization.
+
+    Returns (score, is_exact_canonical).
+    """
+    if len(target_tokens) != len(window_tokens):
+        return (0.0, False)
+
+    t_canon = [canonical_token(t) for t in target_tokens]
+    w_canon = [canonical_token(w) for w in window_tokens]
+
+    if t_canon == w_canon:
+        return (1.0, True)
+
+    # If target contains a number token, window MUST contain that exact number token!
+    # This prevents 'fourteen' from fuzzy matching 'forgotten', or 'ten' matching 'often'.
+    t_numbers = {tok for tok in t_canon if tok.isdigit()}
+    if t_numbers:
+        w_numbers = {tok for tok in w_canon if tok.isdigit()}
+        if not t_numbers.issubset(w_numbers):
+            return (0.0, False)
+
+    if len(target_tokens) == 1:
+        if t_canon[0].isdigit() or w_canon[0].isdigit():
+            return (0.0, False)
+        ratio = difflib.SequenceMatcher(None, t_canon[0], w_canon[0]).ratio()
+        return (ratio, False)
+
+    t_str = " ".join(t_canon)
+    w_str = " ".join(w_canon)
+    ratio = difflib.SequenceMatcher(None, t_str, w_str).ratio()
+    return (ratio, False)
+
 
 @dataclass
 class AlignmentResult:
@@ -102,23 +149,38 @@ def get_title_search_variants(title: str, index: int) -> list[str]:
     if num_val is None and index > 0:
         num_val = index
 
+    # Stripped subtitle without "chapter X", "part X", or leading digits
+    sub_title = re.sub(r"^chapter\s+\w+\s*", "", norm).strip()
+    sub_title = re.sub(r"^part\s+\w+\s*", "", sub_title).strip()
+    sub_title = re.sub(r"^\d+\s*", "", sub_title).strip()
+
     if num_val is not None:
         word_num = _NUM_WORDS.get(num_val)
         variants.append(f"chapter {num_val}")
         if word_num:
             variants.append(f"chapter {word_num}")
-            variants.append(word_num)
         variants.append(f"part {num_val}")
+        if word_num:
+            variants.append(f"part {word_num}")
 
-    # Also add stripped subtitle without "chapter X"
-    sub_title = re.sub(r"^chapter\s+\w+\s*", "", norm).strip()
+        # Subtitle combinations with chapter/part/number
+        if sub_title and len(sub_title) > 2:
+            variants.append(f"chapter {num_val} {sub_title}")
+            variants.append(f"{num_val} {sub_title}")
+            if word_num:
+                variants.append(f"chapter {word_num} {sub_title}")
+                variants.append(f"{word_num} {sub_title}")
+
+        # Single canonical number token as fallback
+        variants.append(str(num_val))
+
     if sub_title and len(sub_title) > 3:
         variants.append(sub_title)
 
-    # Unique, sorted by length descending
+    # Unique, sorted by token count descending, then length descending
     seen = set()
     res = []
-    for v in sorted(variants, key=len, reverse=True):
+    for v in sorted(variants, key=lambda x: (len(x.split()), len(x)), reverse=True):
         if v and v not in seen:
             seen.add(v)
             res.append(v)
@@ -342,36 +404,24 @@ class AudioAligner:
             if k == 0:
                 continue
 
+            is_single = (k == 1)
+            min_thresh = 0.85 if is_single else 0.70
+
             for i in range(len(clean_words) - k + 1):
                 window_tokens = clean_words[i : i + k]
-                window_str = " ".join(window_tokens)
-                ratio = difflib.SequenceMatcher(None, target_phrase, window_str).ratio()
+                ratio, is_canon = compute_token_match(target_tokens, window_tokens)
+                if ratio < min_thresh:
+                    continue
 
-                # Penalize distance from estimated time slightly so closer matches win ties
                 abs_time = slice_start_s + all_words[i].start
                 dist_penalty = min(0.15, abs(abs_time - estimated_time_s) / (win_s * 10))
-                adjusted_score = ratio - dist_penalty
+                len_bonus = 0.10 if not is_single else 0.0
+                adjusted_score = ratio + len_bonus - dist_penalty
 
-                if adjusted_score > best_score and ratio >= 0.70:
+                if adjusted_score > best_score:
                     best_score = adjusted_score
                     best_match_idx = i
-                    best_phrase = window_str
-
-        # If strict sequence matcher didn't find high confidence, check exact substring in words
-        if best_match_idx is None:
-            for target_phrase in variants:
-                target_tokens = target_phrase.split()
-                if not target_tokens:
-                    continue
-                first_tok = target_tokens[0]
-                for i, w_tok in enumerate(clean_words):
-                    if w_tok == first_tok:
-                        best_match_idx = i
-                        best_score = 0.75
-                        best_phrase = w_tok
-                        break
-                if best_match_idx is not None:
-                    break
+                    best_phrase = " ".join(window_tokens)
 
         if best_match_idx is None:
             snippet = " ".join(full_text_parts)[:150]

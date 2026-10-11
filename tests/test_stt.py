@@ -53,7 +53,7 @@ def test_title_search_variants() -> None:
     v1 = get_title_search_variants("Chapter 4: An Unexpected Journey", 4)
     assert "chapter 4" in v1
     assert "chapter four" in v1
-    assert "four" in v1
+    assert "4" in v1
     assert "an unexpected journey" in v1
 
     # Roman numeral chapter
@@ -204,5 +204,42 @@ def test_patch_pyav_handles_unexpected_kwarg() -> None:
         assert result == "success"
     finally:
         av.open = orig_open
+
+
+def test_canonical_token_and_compute_token_match() -> None:
+    from m4bmaker.stt.aligner import canonical_token, compute_token_match
+
+    # Canonical conversions
+    assert canonical_token("fourteen") == "14"
+    assert canonical_token("14") == "14"
+    assert canonical_token("xiv") == "14"
+    assert canonical_token("ten") == "10"
+    assert canonical_token("x") == "10"
+    assert canonical_token("chapter") == "chapter"
+
+    # Exact canonical equivalence across number representations
+    ratio, is_canon = compute_token_match(["chapter", "14"], ["chapter", "fourteen"])
+    assert ratio == 1.0
+    assert is_canon is True
+
+    ratio, is_canon = compute_token_match(["chapter", "ten"], ["chapter", "10"])
+    assert ratio == 1.0
+    assert is_canon is True
+
+    # Number token mismatch prevention: "14" or "fourteen" vs "forgotten" MUST return 0.0
+    ratio, _ = compute_token_match(["14"], ["forgotten"])
+    assert ratio == 0.0
+
+    ratio, _ = compute_token_match(["fourteen"], ["forgotten"])
+    assert ratio == 0.0
+
+    # "ten" vs "often" MUST return 0.0
+    ratio, _ = compute_token_match(["ten"], ["often"])
+    assert ratio == 0.0
+
+    # Target containing number requires window to contain that same number
+    ratio, _ = compute_token_match(["part", "14"], ["after", "i"])
+    assert ratio == 0.0
+
 
 

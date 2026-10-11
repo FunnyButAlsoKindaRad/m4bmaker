@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -55,6 +56,21 @@ class _StreamToLogger:
 
     def flush(self) -> None:
         pass
+
+    def isatty(self) -> bool:
+        return False
+
+    def fileno(self) -> int:
+        raise io.UnsupportedOperation("fileno")
+
+    def writable(self) -> bool:
+        return True
+
+    def readable(self) -> bool:
+        return False
+
+    def seekable(self) -> bool:
+        return False
 
 
 def setup_logging() -> Path:
