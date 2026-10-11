@@ -57,7 +57,16 @@ def load_audiobook(
     chapters = []
 
     if not chapters:
-        chapters = build_chapters(files, ffprobe, progress_fn=progress_fn)
+        if len(files) == 1 and files[0].suffix.lower() == ".m4b":
+            from m4bmaker.m4b_editor import load_m4b_chapters
+            try:
+                m4b_chapters, _ = load_m4b_chapters(files[0], ffprobe)
+                if m4b_chapters:
+                    chapters = m4b_chapters
+            except Exception:
+                pass
+        if not chapters:
+            chapters = build_chapters(files, ffprobe, progress_fn=progress_fn)
         
     if not metadata.title and not metadata.author and not metadata.narrator and not metadata.genre:
         raw_meta = extract_metadata(files[0]) if files else {}

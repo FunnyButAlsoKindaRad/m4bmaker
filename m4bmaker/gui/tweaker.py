@@ -18,8 +18,8 @@ class IconTweakerDialog(QDialog):
         if not hasattr(self._main_window, "_tweaker_state"):
             self._main_window._tweaker_state = {
                 "play": {"bw": 46, "bh": 46, "iw": 28, "ih": 28, "ox": 0, "oy": 0},
-                "rw": {"bw": 40, "bh": 40, "iw": 24, "ih": 24, "ox": 0, "oy": 2},
-                "ch": {"bw": 36, "bh": 36, "iw": 20, "ih": 20, "ox": 0, "oy": 2},
+                "rw": {"bw": 40, "bh": 40, "iw": 24, "ih": 24, "ox": 0, "oy": 0},
+                "ch": {"bw": 36, "bh": 36, "iw": 20, "ih": 20, "ox": 0, "oy": 0},
             }
         
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
@@ -125,8 +125,11 @@ class IconTweakerDialog(QDialog):
         
         # We can use padding to move the icon. Positive X = move right (padding-left)
         # Positive Y = move down (padding-top). Since total size is fixed, we balance it.
-        pt = max(0, oy)
-        pb = max(0, -oy)
+        # For RW/FF and Prev/Next (idx != 0), 2px top padding is the new baseline (0).
+        base_y = 0 if idx == 0 else 2
+        effective_y = base_y + oy
+        pt = max(0, effective_y)
+        pb = max(0, -effective_y)
         pl = max(0, ox)
         pr = max(0, -ox)
         style = f"padding: {pt}px {pr}px {pb}px {pl}px; min-width: {bw}px; min-height: {bh}px; max-width: {bw}px; max-height: {bh}px;"

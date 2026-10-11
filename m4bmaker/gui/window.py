@@ -1095,7 +1095,11 @@ class MainWindow(QMainWindow):
     def _on_split_chapters(self) -> None:
         if self._book is None:
             return
-        source = self._folder_zone.path()
+        source = (
+            self._book.files[0]
+            if (self._book and self._book.files and Path(self._book.files[0]).is_file())
+            else self._folder_zone.path()
+        )
         if source is None:
             return
         default_dir = source.parent / (source.stem + " - Chapters")
@@ -1216,7 +1220,23 @@ class MainWindow(QMainWindow):
         # invoke a slot on a destroyed window — a fatal error under PySide6.
         # The scan generation therefore rides on the worker object (read back
         # via sender()), not in a closure.
-        if p.is_dir() or p.suffix.lower() != ".m4b":
+        target_m4b = None
+        if p.is_file() and p.suffix.lower() == ".m4b":
+            target_m4b = p
+        elif p.is_dir():
+            from m4bmaker.scanner import scan_audio_files
+            audio_files = scan_audio_files(p)
+            if len(audio_files) == 1 and audio_files[0].suffix.lower() == ".m4b":
+                target_m4b = audio_files[0]
+
+        if target_m4b is not None:
+            self._set_mode("edit")
+            self._m4b_load_worker = LoadM4bWorker(target_m4b)
+            self._m4b_load_worker.generation = generation
+            self._m4b_load_worker.result_ready.connect(self._on_m4b_loaded)
+            self._m4b_load_worker.error.connect(self._on_load_error)
+            self._m4b_load_worker.start()
+        else:
             self._set_mode("build")
             source = [p] if p.is_file() else p
             self._load_worker = LoadWorker(source)
@@ -1224,13 +1244,6 @@ class MainWindow(QMainWindow):
             self._load_worker.result_ready.connect(self._on_load_finished)
             self._load_worker.error.connect(self._on_load_error)
             self._load_worker.start()
-        else:
-            self._set_mode("edit")
-            self._m4b_load_worker = LoadM4bWorker(p)
-            self._m4b_load_worker.generation = generation
-            self._m4b_load_worker.result_ready.connect(self._on_m4b_loaded)
-            self._m4b_load_worker.error.connect(self._on_load_error)
-            self._m4b_load_worker.start()
 
     def _set_mode(self, mode: str) -> None:
         """Switch between build and edit mode, moving every label with it.
@@ -1421,7 +1434,11 @@ class MainWindow(QMainWindow):
         start_ms = 0
         if self._mode == "edit":
             start_ms = int(ch.start_time * 1000)
-            src = self._folder_zone.path() if self._folder_zone.path() else ch.source_file
+            src = (
+                ch.source_file
+                if (ch.source_file and Path(ch.source_file).is_file())
+                else (self._book.files[0] if (self._book and self._book.files and Path(self._book.files[0]).is_file()) else self._folder_zone.path())
+            )
         else:
             if ch.source_file is not None:
                 src = ch.source_file
@@ -2001,7 +2018,11 @@ class MainWindow(QMainWindow):
         self._convert_btn.setEnabled(True)
 
     def _do_save_chapters(self) -> None:
-        source = self._folder_zone.path()
+        source = (
+            self._book.files[0]
+            if (self._book and self._book.files and Path(self._book.files[0]).is_file())
+            else self._folder_zone.path()
+        )
         if source is None:
             return
         chapters = self._gather_chapters_from_table()
