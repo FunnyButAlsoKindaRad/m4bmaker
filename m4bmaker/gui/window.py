@@ -179,10 +179,10 @@ class MainWindow(QMainWindow):
         self._build_menu_bar()
         self._build_ui()
 
-        # Restore persisted theme preference.
+        # Restore persisted theme preference and apply theme/icons.
         if _prefs_get("dark_mode"):
             self._dark_action.setChecked(True)
-            self._toggle_dark_mode()
+        self._toggle_dark_mode()
 
         # Start background update check (once per session, fails silently).
         # Respects the "Check for Updates on Startup" preference.
@@ -799,17 +799,26 @@ class MainWindow(QMainWindow):
         self._ch_prev_btn = QPushButton()
         self._ch_prev_btn.setObjectName("playerPrevBtn")
         self._ch_prev_btn.setFixedSize(36, 36)
-        self._ch_prev_btn.setStyleSheet("padding: 2px 0px 0px 0px;")
+        self._ch_prev_btn.setStyleSheet("padding: 2px 0px 0px 0px; min-width: 36px; min-height: 36px; max-width: 36px; max-height: 36px;")
         self._ch_prev_btn.setToolTip("Previous chapter")
         self._ch_prev_btn.setEnabled(False)
         self._ch_prev_btn.clicked.connect(self._on_chapter_prev)
         self._ch_next_btn = QPushButton()
         self._ch_next_btn.setObjectName("playerNextBtn")
         self._ch_next_btn.setFixedSize(36, 36)
-        self._ch_next_btn.setStyleSheet("padding: 2px 0px 0px 0px;")
+        self._ch_next_btn.setStyleSheet("padding: 2px 0px 0px 0px; min-width: 36px; min-height: 36px; max-width: 36px; max-height: 36px;")
         self._ch_next_btn.setToolTip("Next chapter")
         self._ch_next_btn.setEnabled(False)
         self._ch_next_btn.clicked.connect(self._on_chapter_next)
+
+        from m4bmaker.gui.icons import load_svg_icon
+        from m4bmaker.gui.svg_icons import PREVIOUS_CHAPTER_SVG, NEXT_CHAPTER_SVG
+        from PySide6.QtCore import QSize
+        ch_icon_color = "#f0f0f0" if self._dark_mode else "#1a1a1a"
+        self._ch_prev_btn.setIcon(load_svg_icon(PREVIOUS_CHAPTER_SVG, ch_icon_color, 20))
+        self._ch_prev_btn.setIconSize(QSize(20, 20))
+        self._ch_next_btn.setIcon(load_svg_icon(NEXT_CHAPTER_SVG, ch_icon_color, 20))
+        self._ch_next_btn.setIconSize(QSize(20, 20))
         
         self._player.transport_layout.insertWidget(1, self._ch_prev_btn)
         self._player.transport_layout.insertWidget(5, self._ch_next_btn)

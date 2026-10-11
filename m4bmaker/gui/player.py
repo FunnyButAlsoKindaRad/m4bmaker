@@ -74,21 +74,21 @@ class AudioPlayerWidget(QWidget):
         # ── buttons ──────────────────────────────────────────────────────────
         self._rw_btn = QPushButton()
         self._rw_btn.setObjectName("playerRwBtn")
-        self._rw_btn.setStyleSheet("padding: 2px 0px 0px 0px;")
+        self._rw_btn.setStyleSheet("padding: 2px 0px 0px 0px; min-width: 40px; min-height: 40px; max-width: 40px; max-height: 40px;")
         self._rw_btn.setFixedSize(40, 40)
         self._rw_btn.setToolTip("Rewind 15s")
         self._rw_btn.clicked.connect(lambda: self.seek_relative(-15000))
 
         self._play_btn = QPushButton(_ICON_PLAY)
         self._play_btn.setObjectName("playerPlayBtn")
-        self._play_btn.setStyleSheet("padding: 0px;")
+        self._play_btn.setStyleSheet("padding: 0px; min-width: 46px; min-height: 46px; max-width: 46px; max-height: 46px;")
         self._play_btn.setFixedSize(46, 46)
         self._play_btn.setToolTip("Play / Pause")
         self._play_btn.clicked.connect(self._toggle_play)
 
         self._ff_btn = QPushButton()
         self._ff_btn.setObjectName("playerFfBtn")
-        self._ff_btn.setStyleSheet("padding: 2px 0px 0px 0px;")
+        self._ff_btn.setStyleSheet("padding: 2px 0px 0px 0px; min-width: 40px; min-height: 40px; max-width: 40px; max-height: 40px;")
         self._ff_btn.setFixedSize(40, 40)
         self._ff_btn.setToolTip("Fast Forward 15s")
         self._ff_btn.clicked.connect(lambda: self.seek_relative(15000))
@@ -146,6 +146,7 @@ class AudioPlayerWidget(QWidget):
         self._player.mediaStatusChanged.connect(lambda status: self._update_buttons())
         self._player.errorOccurred.connect(self._on_error)
         self._player.mediaStatusChanged.connect(self._on_status)
+        self.set_dark_mode(False)
 
     def _on_error(self, error, error_string):
         self._time_lbl.setText(f"Err: {error_string}")

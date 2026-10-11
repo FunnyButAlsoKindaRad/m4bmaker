@@ -398,13 +398,28 @@ QPushButton#playerNextBtn {
 }
 
 QPushButton#playerPlayBtn {
+    min-width: 46px;
+    max-width: 46px;
+    min-height: 46px;
+    max-height: 46px;
     padding: 0;
 }
 
 QPushButton#playerRwBtn,
-QPushButton#playerFfBtn,
+QPushButton#playerFfBtn {
+    min-width: 40px;
+    max-width: 40px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 2px 0 0 0;
+}
+
 QPushButton#playerPrevBtn,
 QPushButton#playerNextBtn {
+    min-width: 36px;
+    max-width: 36px;
+    min-height: 36px;
+    max-height: 36px;
     padding: 2px 0 0 0;
 }
 
@@ -918,13 +933,28 @@ QPushButton#playerNextBtn {
 }
 
 QPushButton#playerPlayBtn {
+    min-width: 46px;
+    max-width: 46px;
+    min-height: 46px;
+    max-height: 46px;
     padding: 0;
 }
 
 QPushButton#playerRwBtn,
-QPushButton#playerFfBtn,
+QPushButton#playerFfBtn {
+    min-width: 40px;
+    max-width: 40px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 2px 0 0 0;
+}
+
 QPushButton#playerPrevBtn,
 QPushButton#playerNextBtn {
+    min-width: 36px;
+    max-width: 36px;
+    min-height: 36px;
+    max-height: 36px;
     padding: 2px 0 0 0;
 }
 
