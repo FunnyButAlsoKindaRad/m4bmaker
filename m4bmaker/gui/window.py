@@ -285,6 +285,15 @@ class MainWindow(QMainWindow):
         self._updates_action.toggled.connect(self._toggle_update_check)
         help_menu.addAction(self._updates_action)
 
+        help_menu.addSeparator()
+        view_log_act = QAction("View Log File", self)
+        view_log_act.triggered.connect(self._on_view_log)
+        help_menu.addAction(view_log_act)
+
+        open_log_dir_act = QAction("Open Logs Folder", self)
+        open_log_dir_act.triggered.connect(self._on_open_logs_dir)
+        help_menu.addAction(open_log_dir_act)
+
 
 
     def _set_status(self, text: str) -> None:
@@ -2395,7 +2404,16 @@ class MainWindow(QMainWindow):
         self._align_worker.result_ready.connect(self._on_align_all_finished)
         self._align_worker.cancelled.connect(self._on_align_cancelled)
         self._align_worker.error.connect(self._on_align_error)
+        self._align_worker.finished.connect(self._on_align_worker_finished)
         self._align_worker.start()
+
+    def _on_align_worker_finished(self) -> None:
+        """Safely clean up AlignWorker after its thread has completely terminated."""
+        self._progress_bar.setVisible(False)
+        self._smart_align_btn.setEnabled(True)
+        if self._align_worker is not None:
+            self._align_worker.deleteLater()
+            self._align_worker = None
 
     def _on_chapter_aligned(self, result: object) -> None:
         """Handle individual chapter alignment result."""
@@ -2412,9 +2430,6 @@ class MainWindow(QMainWindow):
             self._sync_times_from_table()
 
     def _on_align_all_finished(self, results: list) -> None:
-        self._progress_bar.setVisible(False)
-        self._smart_align_btn.setEnabled(True)
-        self._align_worker = None
         succ = sum(1 for r in results if getattr(r, "success", False))
         total = len(results)
         if succ == 0 and total > 0:
@@ -2424,16 +2439,40 @@ class MainWindow(QMainWindow):
             self._set_status(f"Smart Alignment complete: {succ}/{total} chapter(s) aligned.")
 
     def _on_align_cancelled(self) -> None:
-        self._progress_bar.setVisible(False)
-        self._smart_align_btn.setEnabled(True)
-        self._align_worker = None
         self._set_status("Smart Alignment cancelled.")
 
     def _on_align_error(self, err: str) -> None:
-        self._progress_bar.setVisible(False)
-        self._smart_align_btn.setEnabled(True)
-        self._align_worker = None
         self._set_status("Smart Alignment error.")
         if self.isVisible():
             QMessageBox.critical(self, "Smart Alignment Error", err)
+
+    def _on_view_log(self) -> None:
+        """Open the active log file in the default text viewer."""
+        from m4bmaker.logging_config import get_log_file_path
+
+        log_file = get_log_file_path()
+        if log_file.is_file():
+            try:
+                import os
+
+                os.startfile(log_file)
+            except Exception as exc:
+                QMessageBox.warning(self, "Logs", f"Could not open log file:\n{exc}")
+        else:
+            QMessageBox.information(
+                self, "Logs", f"No log file has been created yet at:\n{log_file}"
+            )
+
+    def _on_open_logs_dir(self) -> None:
+        """Open the folder containing application logs in File Explorer."""
+        from m4bmaker.logging_config import get_log_file_path
+
+        log_dir = get_log_file_path().parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            import os
+
+            os.startfile(log_dir)
+        except Exception as exc:
+            QMessageBox.warning(self, "Logs", f"Could not open logs folder:\n{exc}")
 

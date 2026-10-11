@@ -111,3 +111,16 @@ def test_alignment_result_dataclass() -> None:
     assert res.success is True
     assert res.row == 0
     assert res.aligned_time_s == 12.5
+
+
+def test_logging_setup(tmp_path: Path) -> None:
+    from m4bmaker import logging_config
+
+    with patch.object(logging_config, "get_log_file_path", return_value=tmp_path / "test.log"):
+        log_file = logging_config.setup_logging()
+        assert log_file == tmp_path / "test.log"
+        import logging
+
+        logging.getLogger("m4bmaker.test").info("Test log entry")
+        assert log_file.is_file()
+        assert "Test log entry" in log_file.read_text(encoding="utf-8")

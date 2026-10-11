@@ -15,6 +15,7 @@ signals below never collide with the native one.
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -24,6 +25,8 @@ from m4bmaker.errors import EncodeCancelled, M4BError
 from m4bmaker.models import Book, BookMetadata, Chapter
 from m4bmaker.pipeline import load_audiobook, run_pipeline
 from m4bmaker.utils import find_ffmpeg, find_ffprobe, get_temp_root, subprocess_flags
+
+_log = logging.getLogger(__name__)
 
 
 class LoadWorker(QThread):
@@ -449,5 +452,6 @@ class AlignWorker(QThread):
             self.progress.emit("Alignment complete.", 1.0)
             self.result_ready.emit(results)
         except Exception as exc:  # noqa: BLE001
+            _log.error("AlignWorker error: %s", exc, exc_info=True)
             self.error.emit(str(exc))
 

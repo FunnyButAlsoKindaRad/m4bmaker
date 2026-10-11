@@ -20,9 +20,11 @@ from PySide6.QtWidgets import QApplication
 
 from m4bmaker.gui.styles import get_stylesheet
 from m4bmaker.gui.window import MainWindow
+from m4bmaker.logging_config import setup_logging
 
 
 def main() -> None:
+    setup_logging()
     app = QApplication(sys.argv)
     app.setApplicationName("m4bmaker")
     app.setStyleSheet(get_stylesheet())

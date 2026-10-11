@@ -273,7 +273,7 @@ class AudioAligner:
             io.BytesIO(wav_bytes),
             word_timestamps=True,
             language=transcribe_lang,
-            vad_filter=True,
+            vad_filter=False,
         )
 
         all_words = []
@@ -392,18 +392,18 @@ class AudioAligner:
         offset_s = aligned_time_s - estimated_time_s
 
         return AlignmentResult(
-            chapter_index=chapter_index,
-            chapter_title=chapter_title,
-            original_time_s=estimated_time_s,
-            aligned_time_s=round(aligned_time_s, 3),
-            spoken_time_s=round(spoken_time_s, 3),
-            matched_phrase=best_phrase,
-            transcript_snippet=snippet,
-            confidence=round(best_score, 2),
-            snapped_to_silence=snapped,
-            offset_s=round(offset_s, 3),
+            chapter_index=int(chapter_index),
+            chapter_title=str(chapter_title),
+            original_time_s=float(estimated_time_s),
+            aligned_time_s=round(float(aligned_time_s), 3),
+            spoken_time_s=round(float(spoken_time_s), 3),
+            matched_phrase=str(best_phrase),
+            transcript_snippet=str(snippet),
+            confidence=round(float(best_score), 2),
+            snapped_to_silence=bool(snapped),
+            offset_s=round(float(offset_s), 3),
             success=True,
-            row=target_row,
+            row=int(target_row) if target_row is not None else None,
         )
 
     # Backward-compatible alias

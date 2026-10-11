@@ -94,6 +94,7 @@ all_hidden = pyside6_hidden + ct2_hidden + tok_hidden + fw_hidden + hf_hidden + 
     "huggingface_hub",
     "urllib.request",
     "ssl",
+    "m4bmaker.logging_config",
 ]
 
 a = Analysis(
