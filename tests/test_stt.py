@@ -124,3 +124,85 @@ def test_logging_setup(tmp_path: Path) -> None:
         logging.getLogger("m4bmaker.test").info("Test log entry")
         assert log_file.is_file()
         assert "Test log entry" in log_file.read_text(encoding="utf-8")
+
+
+def test_wav_bytes_to_float32() -> None:
+    import io
+    import wave
+    import numpy as np
+    from m4bmaker.stt.aligner import wav_bytes_to_float32
+
+    # Synthesize 100ms of 16kHz mono 16-bit PCM (silence or simple sine)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        # 1600 samples
+        pcm_data = (np.sin(np.linspace(0, 10, 1600)) * 10000).astype(np.int16).tobytes()
+        wf.writeframes(pcm_data)
+
+    wav_bytes = buf.getvalue()
+    audio_f32 = wav_bytes_to_float32(wav_bytes)
+
+    assert isinstance(audio_f32, np.ndarray)
+    assert audio_f32.dtype == np.float32
+    assert len(audio_f32) == 1600
+    assert np.all(audio_f32 >= -1.0) and np.all(audio_f32 <= 1.0)
+
+
+def test_align_passes_numpy_to_transcribe() -> None:
+    import io
+    import wave
+    import numpy as np
+    from m4bmaker.stt.aligner import AudioAligner
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 1600)
+    fake_wav_bytes = buf.getvalue()
+
+    aligner = AudioAligner(model_name="tiny.en")
+    mock_model = MagicMock()
+    mock_model.transcribe.return_value = ([], MagicMock())
+    aligner._model = mock_model
+
+    with patch.object(aligner, "extract_audio_slice", return_value=fake_wav_bytes):
+        aligner.align(
+            audio_path="dummy.m4b",
+            chapter_title="Chapter 1",
+            chapter_index=1,
+            estimated_time_s=10.0,
+        )
+
+    assert mock_model.transcribe.called
+    args, kwargs = mock_model.transcribe.call_args
+    passed_audio = args[0]
+    # Verify passed audio is numpy array (not io.BytesIO) to bypass PyAV av.open
+    assert isinstance(passed_audio, np.ndarray)
+    assert passed_audio.dtype == np.float32
+
+
+def test_patch_pyav_handles_unexpected_kwarg() -> None:
+    from m4bmaker.stt import _patch_pyav
+    import av
+
+    # Simulate an av.open that raises TypeError when metadata_errors is passed
+    def mock_av_open(*args, **kwargs):
+        if "metadata_errors" in kwargs:
+            raise TypeError("open() got an unexpected keyword argument 'metadata_errors'")
+        return "success"
+
+    orig_open = av.open
+    try:
+        av.open = mock_av_open
+        _patch_pyav()
+        result = av.open("fake_path", mode="r", metadata_errors="ignore")
+        assert result == "success"
+    finally:
+        av.open = orig_open
+
+

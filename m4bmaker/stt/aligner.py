@@ -7,9 +7,12 @@ import io
 import logging
 import re
 import subprocess
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
+
+import numpy as np
 
 from m4bmaker.stt.models import DEFAULT_MODEL, get_model_path, is_model_downloaded
 from m4bmaker.stt.silence import snap_to_preceding_silence
@@ -48,6 +51,29 @@ class AlignmentResult:
     success: bool = True
     error_message: Optional[str] = None
     row: Optional[int] = None
+
+
+def wav_bytes_to_float32(wav_bytes: bytes) -> np.ndarray:
+    """Convert 16kHz mono WAV bytes to a 1D float32 numpy array normalized to [-1.0, 1.0]."""
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+        n_channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        n_frames = wf.getnframes()
+        raw_pcm = wf.readframes(n_frames)
+
+    if sampwidth == 2:
+        audio = np.frombuffer(raw_pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    elif sampwidth == 4:
+        audio = np.frombuffer(raw_pcm, dtype=np.int32).astype(np.float32) / 2147483648.0
+    elif sampwidth == 1:
+        audio = (np.frombuffer(raw_pcm, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+    else:
+        audio = np.frombuffer(raw_pcm, dtype=np.int16).astype(np.float32) / 32768.0
+
+    if n_channels > 1:
+        audio = audio.reshape(-1, n_channels).mean(axis=1)
+
+    return audio
 
 
 def normalize_text(text: str) -> str:
@@ -269,8 +295,9 @@ class AudioAligner:
             )
 
         transcribe_lang = "en" if self.model_name.endswith(".en") else None
+        audio_f32 = wav_bytes_to_float32(wav_bytes)
         segments, _ = self._model.transcribe(
-            io.BytesIO(wav_bytes),
+            audio_f32,
             word_timestamps=True,
             language=transcribe_lang,
             vad_filter=False,
