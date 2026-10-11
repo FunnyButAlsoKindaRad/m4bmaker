@@ -55,12 +55,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -72,6 +74,7 @@ from m4bmaker.gui.icons import dark_mode_icon
 from m4bmaker.gui.styles import get_stylesheet
 from m4bmaker.gui.widgets import ChapterTable, CoverWidget, FolderDropZone
 from m4bmaker.gui.worker import (
+    AlignWorker,
     ConvertWorker,
     LoadM4bWorker,
     LoadWorker,
@@ -160,6 +163,7 @@ class MainWindow(QMainWindow):
         self._preflight_sample_rate: Optional[int] = None
         self._save_worker: Optional[SaveChaptersWorker] = None
         self._split_worker: Optional[SplitWorker] = None
+        self._align_worker: Optional[AlignWorker] = None
         # Generation counter for load workers: each load stamps a generation id,
         # and result slots ignore payloads from a superseded generation so a slow
         # scan of folder A cannot populate the UI under folder B's path (H5).
@@ -250,11 +254,15 @@ class MainWindow(QMainWindow):
         self._dark_action.triggered.connect(self._toggle_dark_mode)
         view_menu.addAction(self._dark_action)
 
-        # Help menu
+        # Tools menu
         tools_menu = mb.addMenu("Tools")
         api_prefs_action = QAction("API Settings...", self)
         api_prefs_action.triggered.connect(self._on_api_prefs)
         tools_menu.addAction(api_prefs_action)
+
+        stt_prefs_action = QAction("Smart Alignment Settings\u2026", self)
+        stt_prefs_action.triggered.connect(self._on_stt_settings)
+        tools_menu.addAction(stt_prefs_action)
 
         help_menu = mb.addMenu("Help")
 
@@ -316,6 +324,12 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_ch_next_btn"):
                 self._ch_next_btn.setIcon(load_svg_icon(NEXT_CHAPTER_SVG, color, 20))
                 self._ch_next_btn.setIconSize(QSize(20, 20))
+        if hasattr(self, "_smart_align_btn"):
+            from m4bmaker.gui.icons import load_svg_icon
+            from m4bmaker.gui.svg_icons import WAND_SVG
+            self._smart_align_btn.setIcon(load_svg_icon(WAND_SVG, "#f0f0f0" if self._dark_mode else "#1a1a1a", 16))
+        if hasattr(self, "_chapter_table"):
+            self._chapter_table.set_dark_mode(self._dark_mode)
 
     def _on_job_updated(self, _job_id: object) -> None:
         self._update_controls()
@@ -781,6 +795,34 @@ class MainWindow(QMainWindow):
         self._ch_remove_btn.clicked.connect(self._on_chapter_remove)
         ch_tools_row.addWidget(self._ch_remove_btn)
         
+        # Smart Alignment wand button with popup menu
+        from m4bmaker.gui.icons import load_svg_icon
+        from m4bmaker.gui.svg_icons import WAND_SVG
+        wand_color = "#f0f0f0" if self._dark_mode else "#1a1a1a"
+
+        self._smart_align_btn = QToolButton()
+        self._smart_align_btn.setIcon(load_svg_icon(WAND_SVG, wand_color, 16))
+        self._smart_align_btn.setText("Smart Align")
+        self._smart_align_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._smart_align_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self._smart_align_btn.setToolTip("Align chapter timestamps to spoken audio using Speech-to-Text")
+        self._smart_align_btn.setEnabled(False)
+        self._smart_align_btn.clicked.connect(self._on_smart_align_selected)
+
+        wand_menu = QMenu(self._smart_align_btn)
+        act_sel = wand_menu.addAction("Smart Align Selected")
+        act_sel.triggered.connect(self._on_smart_align_selected)
+        act_all = wand_menu.addAction("Smart Align All Chapters\u2026")
+        act_all.triggered.connect(self._on_smart_align_all)
+        wand_menu.addSeparator()
+        act_cfg = wand_menu.addAction("Smart Alignment Settings\u2026")
+        act_cfg.triggered.connect(self._on_stt_settings)
+        self._smart_align_btn.setMenu(wand_menu)
+        ch_tools_row.addWidget(self._smart_align_btn)
+
+        self._chapter_table.smart_align_requested.connect(self._on_smart_align_selected)
+        self._chapter_table.chapter_reverted.connect(self._on_chapter_reverted)
+
         ch_tools_row.addSpacing(12)
         ch_tools_row.addWidget(QLabel("Offset (sec):"))
         self._offset_spin = QDoubleSpinBox()
@@ -1683,6 +1725,8 @@ class MainWindow(QMainWindow):
         self._ch_remove_btn.setVisible(show_remove)
         self._ch_merge_btn.setVisible(has_book)
         self._ch_add_btn.setVisible(in_edit)
+        if hasattr(self, "_smart_align_btn"):
+            self._smart_align_btn.setEnabled(has_book and bool(self._book and self._book.chapters))
         if not has_book:
             self._ch_merge_btn.setEnabled(False)
             return
@@ -2198,3 +2242,185 @@ class MainWindow(QMainWindow):
         else:
             box.setInformativeText("Press Ctrl+C to copy this error.")
         box.exec()
+
+    # ── Smart Chapter Alignment ───────────────────────────────────────────────
+
+    def _on_stt_settings(self) -> None:
+        """Open the Speech-to-Text configuration dialog."""
+        from m4bmaker.gui.stt_dialog import SttSettingsDialog
+
+        dlg = SttSettingsDialog(self)
+        dlg.exec()
+
+    def _on_chapter_reverted(self, row: int, old_start_time_s: float) -> None:
+        """Handle undo button click in ChapterTable."""
+        if self._book is None or row >= len(self._book.chapters):
+            return
+        self._book.chapters[row].start_time = old_start_time_s
+        self._sync_times_from_table()
+        self._set_status(f"Reverted chapter {row + 1} to original timestamp.")
+
+    def _on_smart_align_selected(self) -> None:
+        """Align currently selected chapter(s), or current row."""
+        if not self._book or not self._book.chapters:
+            return
+        selected = sorted(
+            {idx.row() for idx in self._chapter_table.selectionModel().selectedRows()}
+        )
+        if not selected:
+            row = self._chapter_table.currentRow()
+            selected = [row] if row >= 0 else [0]
+        self._start_smart_align(selected)
+
+    def _on_smart_align_all(self) -> None:
+        """Align all chapters in the book."""
+        if not self._book or not self._book.chapters:
+            return
+        self._start_smart_align(list(range(len(self._book.chapters))))
+
+    def _start_smart_align(self, row_indices: list[int]) -> None:
+        """Prepare tasks and launch AlignWorker."""
+        from m4bmaker.stt.models import (
+            DEFAULT_MODEL,
+            is_model_downloaded,
+        )
+
+        model_name = str(_prefs_get("stt_model") or DEFAULT_MODEL)
+        if not is_model_downloaded(model_name):
+            reply = QMessageBox.question(
+                self,
+                "Model Not Downloaded",
+                f"The STT model '{model_name}' has not been downloaded yet.\n\n"
+                "Would you like to open Smart Alignment Settings now to download it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._on_stt_settings()
+            return
+
+        if self._align_worker is not None and self._align_worker.isRunning():
+            QMessageBox.information(
+                self, "Alignment Running", "A smart alignment task is already in progress."
+            )
+            return
+
+        self._sync_titles_from_table()
+        self._sync_times_from_table()
+
+        tasks = []
+        for r in row_indices:
+            if r >= len(self._book.chapters):
+                continue
+            ch = self._book.chapters[r]
+            src_file = None
+            file_dur = None
+            if self._mode == "edit":
+                src_file = (
+                    ch.source_file
+                    if (ch.source_file and Path(ch.source_file).is_file())
+                    else (
+                        self._book.files[0]
+                        if (self._book.files and Path(self._book.files[0]).is_file())
+                        else self._folder_zone.path()
+                    )
+                )
+                file_dur = self._m4b_total_duration or self._book.total_duration
+            else:
+                if ch.source_file is not None:
+                    src_file = ch.source_file
+                    idx = (
+                        self._book.files.index(ch.source_file)
+                        if ch.source_file in self._book.files
+                        else -1
+                    )
+                    if idx >= 0 and idx < len(self._book.file_durations):
+                        file_dur = self._book.file_durations[idx]
+                else:
+                    # Map start_time to source file in book.files
+                    if self._book.file_durations:
+                        cursor = 0.0
+                        for i, dur in enumerate(self._book.file_durations):
+                            if cursor + dur > ch.start_time or i == len(self._book.file_durations) - 1:
+                                src_file = self._book.files[i]
+                                file_dur = dur
+                                break
+                            cursor += dur
+
+            if src_file is None or not Path(src_file).is_file():
+                continue
+
+            tasks.append({
+                "row": r,
+                "index": ch.index,
+                "title": ch.title,
+                "file": Path(src_file),
+                "estimated_s": ch.start_time,
+                "file_dur": file_dur,
+            })
+
+        if not tasks:
+            self._set_status("No valid audio files found for alignment.")
+            return
+
+        search_win = float(_prefs_get("stt_search_window_s") or 180.0)
+        snap_silence = bool(_prefs_get("stt_snap_silence") if _prefs_get("stt_snap_silence") is not None else True)
+        silence_thresh = float(_prefs_get("stt_silence_thresh_db") or -35.0)
+        silence_min_dur = float(_prefs_get("stt_silence_min_dur_s") or 0.4)
+
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setVisible(True)
+        self._set_status(f"Aligning {len(tasks)} chapter(s) with {model_name}...")
+        self._smart_align_btn.setEnabled(False)
+
+        self._align_worker = AlignWorker(
+            tasks=tasks,
+            model_name=model_name,
+            search_window_s=search_win,
+            snap_silence=snap_silence,
+            silence_thresh_db=silence_thresh,
+            silence_min_dur_s=silence_min_dur,
+        )
+        self._align_worker.progress.connect(self._on_progress)
+        self._align_worker.chapter_aligned.connect(self._on_chapter_aligned)
+        self._align_worker.result_ready.connect(self._on_align_all_finished)
+        self._align_worker.cancelled.connect(self._on_align_cancelled)
+        self._align_worker.error.connect(self._on_align_error)
+        self._align_worker.start()
+
+    def _on_chapter_aligned(self, result: object) -> None:
+        """Handle individual chapter alignment result."""
+        from m4bmaker.stt.aligner import AlignmentResult
+
+        if not isinstance(result, AlignmentResult) or not result.success:
+            return
+
+        row = result.chapter_index - 1
+        if self._book and 0 <= row < len(self._book.chapters):
+            old_time = self._book.chapters[row].start_time
+            self._book.chapters[row].start_time = result.aligned_time_s
+            self._chapter_table.mark_chapter_aligned(row, result.aligned_time_s, old_time)
+            self._sync_times_from_table()
+
+    def _on_align_all_finished(self, results: list) -> None:
+        self._progress_bar.setVisible(False)
+        self._smart_align_btn.setEnabled(True)
+        self._align_worker = None
+        succ = sum(1 for r in results if getattr(r, "success", False))
+        total = len(results)
+        self._set_status(f"Smart Alignment complete: {succ}/{total} chapter(s) aligned.")
+
+    def _on_align_cancelled(self) -> None:
+        self._progress_bar.setVisible(False)
+        self._smart_align_btn.setEnabled(True)
+        self._align_worker = None
+        self._set_status("Smart Alignment cancelled.")
+
+    def _on_align_error(self, err: str) -> None:
+        self._progress_bar.setVisible(False)
+        self._smart_align_btn.setEnabled(True)
+        self._align_worker = None
+        self._set_status("Smart Alignment error.")
+        if self.isVisible():
+            QMessageBox.critical(self, "Smart Alignment Error", err)
+

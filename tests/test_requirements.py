@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import importlib.util
 import re
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
 
 import pytest
 

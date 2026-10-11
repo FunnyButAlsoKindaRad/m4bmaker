@@ -366,3 +366,87 @@ class SplitWorker(QThread):
             self.result_ready.emit(self._output_dir)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(str(exc))
+
+
+class AlignWorker(QThread):
+    """Run Speech-to-Text smart chapter alignment in the background."""
+
+    progress = Signal(str, float)  # message, 0.0–1.0
+    chapter_aligned = Signal(object)  # AlignmentResult
+    result_ready = Signal(list)  # list[AlignmentResult]
+    cancelled = Signal()
+    error = Signal(str)
+
+    def __init__(
+        self,
+        tasks: list[dict],  # list of {"index": int, "title": str, "file": Path, "estimated_s": float, "file_dur": float}
+        model_name: str,
+        search_window_s: float,
+        snap_silence: bool = True,
+        silence_thresh_db: float = -35.0,
+        silence_min_dur_s: float = 0.4,
+    ) -> None:
+        super().__init__()
+        self._tasks = tasks
+        self._model_name = model_name
+        self._search_window_s = search_window_s
+        self._snap_silence = snap_silence
+        self._silence_thresh_db = silence_thresh_db
+        self._silence_min_dur_s = silence_min_dur_s
+        self._cancel_event = threading.Event()
+
+    def request_cancel(self) -> None:
+        self._cancel_event.set()
+
+    def run(self) -> None:
+        try:
+            from m4bmaker.stt.aligner import AudioAligner
+            from m4bmaker.stt.models import is_model_downloaded
+
+            if not is_model_downloaded(self._model_name):
+                self.error.emit(
+                    f"Model '{self._model_name}' is not downloaded yet. "
+                    "Open Tools \u2192 Smart Alignment Settings to download it."
+                )
+                return
+
+            self.progress.emit(f"Loading speech model '{self._model_name}'...", 0.0)
+            aligner = AudioAligner(
+                model_name=self._model_name,
+                search_window_s=self._search_window_s,
+                snap_to_silence=self._snap_silence,
+                silence_thresh_db=self._silence_thresh_db,
+                silence_min_dur_s=self._silence_min_dur_s,
+            )
+
+            total = len(self._tasks)
+            results = []
+
+            for i, task in enumerate(self._tasks):
+                if self._cancel_event.is_set():
+                    self.cancelled.emit()
+                    return
+
+                ch_title = task["title"]
+                ch_idx = task["index"]
+                self.progress.emit(f"Aligning {i + 1}/{total}: {ch_title}...", i / total)
+
+                res = aligner.align(
+                    audio_path=task["file"],
+                    chapter_title=ch_title,
+                    chapter_index=ch_idx,
+                    estimated_time_s=task["estimated_s"],
+                    file_duration_s=task.get("file_dur"),
+                )
+                results.append(res)
+                self.chapter_aligned.emit(res)
+
+            if self._cancel_event.is_set():
+                self.cancelled.emit()
+                return
+
+            self.progress.emit("Alignment complete.", 1.0)
+            self.result_ready.emit(results)
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+

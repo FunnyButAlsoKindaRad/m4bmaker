@@ -5,6 +5,9 @@
 from PyInstaller.utils.hooks import collect_all, collect_data_files
 
 pyside6_datas, pyside6_binaries, pyside6_hidden = collect_all("PySide6")
+ct2_datas, ct2_binaries, ct2_hidden = collect_all("ctranslate2")
+tok_datas, tok_binaries, tok_hidden = collect_all("tokenizers")
+fw_datas, fw_binaries, fw_hidden = collect_all("faster_whisper")
 
 # Modules this app never uses — strip to reduce bundle size dramatically.
 _STRIP = [
@@ -43,12 +46,12 @@ app_datas = collect_data_files(
     includes=["gui/resources/*"],
 )
 
-all_datas = pyside6_datas + app_datas
-all_binaries = pyside6_binaries + [
+all_datas = pyside6_datas + app_datas + ct2_datas + tok_datas + fw_datas
+all_binaries = pyside6_binaries + ct2_binaries + tok_binaries + fw_binaries + [
     (_FFMPEG_BIN, "."),
     (_FFPROBE_BIN, "."),
 ]
-all_hidden = pyside6_hidden + [
+all_hidden = pyside6_hidden + ct2_hidden + tok_hidden + fw_hidden + [
     "m4bmaker",
     "m4bmaker.chapters",
     "m4bmaker.chapters_file",
@@ -73,6 +76,11 @@ all_hidden = pyside6_hidden + [
     "m4bmaker.gui.widgets",
     "m4bmaker.gui.window",
     "m4bmaker.gui.worker",
+    "m4bmaker.gui.stt_dialog",
+    "m4bmaker.stt",
+    "m4bmaker.stt.models",
+    "m4bmaker.stt.silence",
+    "m4bmaker.stt.aligner",
     "mutagen",
     "mutagen.mp3",
     "mutagen.mp4",

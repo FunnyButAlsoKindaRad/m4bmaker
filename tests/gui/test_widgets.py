@@ -1254,3 +1254,39 @@ class TestTimeDelegate:
         item = self.t.item(0, ChapterTable.COL_TIME)
         assert item is not None
         assert item.data(Qt.ItemDataRole.UserRole) == 0
+
+
+class TestChapterTableSmartAlignRevert:
+    @pytest.fixture(autouse=True)
+    def widget(self, qapp):
+        self.t = ChapterTable()
+        chapters = [
+            _make_chapter(1, 10.0, "Chapter 1"),
+            _make_chapter(2, 60.0, "Chapter 2"),
+        ]
+        self.t.populate(chapters)
+        yield
+        self.t.close()
+
+    def test_mark_chapter_aligned_creates_undo_button(self):
+        assert self.t.cellWidget(0, ChapterTable.COL_UNDO) is None
+        assert not self.t.has_revert_history(0)
+
+        self.t.mark_chapter_aligned(0, new_time_s=12.5, old_time_s=10.0)
+        assert self.t.has_revert_history(0)
+        btn = self.t.cellWidget(0, ChapterTable.COL_UNDO)
+        assert btn is not None
+        assert self.t.item(0, ChapterTable.COL_TIME).text() == "0:12.500"
+
+    def test_revert_chapter_restores_time_and_removes_button(self):
+        reverted_events = []
+        self.t.chapter_reverted.connect(lambda row, t: reverted_events.append((row, t)))
+
+        self.t.mark_chapter_aligned(0, new_time_s=12.5, old_time_s=10.0)
+        self.t._revert_chapter(0)
+
+        assert not self.t.has_revert_history(0)
+        assert self.t.cellWidget(0, ChapterTable.COL_UNDO) is None
+        assert self.t.item(0, ChapterTable.COL_TIME).text() == "0:10.000"
+        assert reverted_events == [(0, 10.0)]
+
