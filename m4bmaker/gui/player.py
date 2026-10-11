@@ -74,7 +74,7 @@ class AudioPlayerWidget(QWidget):
         # ── buttons ──────────────────────────────────────────────────────────
         self._rw_btn = QPushButton()
         self._rw_btn.setObjectName("playerRwBtn")
-        self._rw_btn.setStyleSheet("padding: 0px;")
+        self._rw_btn.setStyleSheet("padding: 2px 0px 0px 0px;")
         self._rw_btn.setFixedSize(40, 40)
         self._rw_btn.setToolTip("Rewind 15s")
         self._rw_btn.clicked.connect(lambda: self.seek_relative(-15000))
@@ -88,7 +88,7 @@ class AudioPlayerWidget(QWidget):
 
         self._ff_btn = QPushButton()
         self._ff_btn.setObjectName("playerFfBtn")
-        self._ff_btn.setStyleSheet("padding: 0px;")
+        self._ff_btn.setStyleSheet("padding: 2px 0px 0px 0px;")
         self._ff_btn.setFixedSize(40, 40)
         self._ff_btn.setToolTip("Fast Forward 15s")
         self._ff_btn.clicked.connect(lambda: self.seek_relative(15000))

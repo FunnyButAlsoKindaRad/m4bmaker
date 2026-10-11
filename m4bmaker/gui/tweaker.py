@@ -16,7 +16,11 @@ class IconTweakerDialog(QDialog):
         self.setWindowTitle("Icon & Button Tweaker")
         self._main_window = main_window
         if not hasattr(self._main_window, "_tweaker_state"):
-            self._main_window._tweaker_state = {}
+            self._main_window._tweaker_state = {
+                "play": {"bw": 46, "bh": 46, "iw": 28, "ih": 28, "ox": 0, "oy": 0},
+                "rw": {"bw": 40, "bh": 40, "iw": 24, "ih": 24, "ox": 0, "oy": 2},
+                "ch": {"bw": 36, "bh": 36, "iw": 20, "ih": 20, "ox": 0, "oy": 2},
+            }
         
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         

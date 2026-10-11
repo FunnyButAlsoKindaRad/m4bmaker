@@ -397,6 +397,17 @@ QPushButton#playerNextBtn {
     padding: 0;
 }
 
+QPushButton#playerPlayBtn {
+    padding: 0;
+}
+
+QPushButton#playerRwBtn,
+QPushButton#playerFfBtn,
+QPushButton#playerPrevBtn,
+QPushButton#playerNextBtn {
+    padding: 2px 0 0 0;
+}
+
 QPushButton#playerPlayBtn:hover,
 QPushButton#playerStopBtn:hover,
 QPushButton#playerRwBtn:hover,
@@ -904,6 +915,17 @@ QPushButton#playerNextBtn {
     color: #1a1a1a;
     font-size: 14px;
     padding: 0;
+}
+
+QPushButton#playerPlayBtn {
+    padding: 0;
+}
+
+QPushButton#playerRwBtn,
+QPushButton#playerFfBtn,
+QPushButton#playerPrevBtn,
+QPushButton#playerNextBtn {
+    padding: 2px 0 0 0;
 }
 
 QPushButton#playerPlayBtn:hover,
