@@ -252,6 +252,10 @@ class SttSettingsDialog(QDialog):
         self._progress_bar.setVisible(False)
         self._dl_btn.setEnabled(True)
         self._update_model_status()
+        from m4bmaker.gui.worker import ModelWarmupWorker
+
+        self._warmup_worker = ModelWarmupWorker(model)
+        self._warmup_worker.start()
         QMessageBox.information(self, "Model Ready", f"Successfully downloaded model '{model}'!")
 
     def _on_download_error(self, err_msg: str) -> None:
@@ -278,6 +282,9 @@ class SttSettingsDialog(QDialog):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
+            from m4bmaker.stt.aligner import clear_model_cache
+
+            clear_model_cache()
             delete_model(model)
             self._update_model_status()
 

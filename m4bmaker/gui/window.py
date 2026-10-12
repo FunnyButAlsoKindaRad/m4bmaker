@@ -194,6 +194,7 @@ class MainWindow(QMainWindow):
         self._update_checker.update_available.connect(self._show_update_bar)
         if _prefs_get("check_for_updates"):
             self._update_checker.start()
+        self._warmup_stt_model_background()
 
     # ── Menu bar ──────────────────────────────────────────────────────────────
 
@@ -1383,6 +1384,7 @@ class MainWindow(QMainWindow):
         self._progress_bar.setValue(0)
         self._progress_bar.setVisible(False)
         self._apply_book_to_ui(book)
+        self._warmup_stt_model_background()
         # Start preflight analysis in the background
         self._preflight_worker = PreflightWorker(book.files)
         self._preflight_worker.result_ready.connect(self._on_preflight_finished)
@@ -1415,6 +1417,7 @@ class MainWindow(QMainWindow):
         self._progress_bar.setValue(0)
         self._progress_bar.setVisible(False)
         self._apply_book_to_ui(book)
+        self._warmup_stt_model_background()
 
     def _on_preflight_error(self, msg: str) -> None:
         """M2: surface preflight probe failures in the Analysis panel."""
@@ -1740,7 +1743,9 @@ class MainWindow(QMainWindow):
         self._ch_merge_btn.setVisible(has_book)
         self._ch_add_btn.setVisible(in_edit)
         if hasattr(self, "_smart_align_btn"):
-            self._smart_align_btn.setEnabled(has_book and bool(self._book and self._book.chapters))
+            self._smart_align_btn.setEnabled(
+                has_book and bool(self._book and self._book.chapters) and not getattr(self, "_align_busy", False)
+            )
         if not has_book:
             self._ch_merge_btn.setEnabled(False)
             return
@@ -2315,6 +2320,10 @@ class MainWindow(QMainWindow):
 
     def _start_smart_align(self, row_indices: list[int]) -> None:
         """Prepare tasks and launch AlignWorker."""
+        if getattr(self, "_align_busy", False) or (self._align_worker is not None and self._align_worker.isRunning()):
+            self._set_status("Smart alignment is already in progress...")
+            return
+
         from m4bmaker.stt.models import (
             DEFAULT_MODEL,
             is_model_downloaded,
@@ -2333,11 +2342,15 @@ class MainWindow(QMainWindow):
                 self._on_stt_settings()
             return
 
-        if self._align_worker is not None and self._align_worker.isRunning():
-            QMessageBox.information(
-                self, "Alignment Running", "A smart alignment task is already in progress."
-            )
-            return
+        self._align_busy = True
+        self._smart_align_btn.setEnabled(False)
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setVisible(True)
+        self._set_status(f"Starting alignment with {model_name}...")
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.processEvents()
 
         self._sync_titles_from_table()
         self._sync_times_from_table()
@@ -2397,6 +2410,9 @@ class MainWindow(QMainWindow):
             })
 
         if not tasks:
+            self._align_busy = False
+            self._progress_bar.setVisible(False)
+            self._update_chapter_buttons()
             self._set_status("No valid audio files found for alignment.")
             return
 
@@ -2414,11 +2430,7 @@ class MainWindow(QMainWindow):
         silence_thresh = float(_prefs_get("stt_noise_db") or _prefs_get("stt_silence_thresh_db") or -35.0)
         silence_min_dur = float(_prefs_get("stt_min_silence_s") or _prefs_get("stt_silence_min_dur_s") or 0.3)
 
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setVisible(True)
         self._set_status(f"Aligning {len(tasks)} chapter(s) with {model_name}...")
-        self._smart_align_btn.setEnabled(False)
 
         self._align_worker = AlignWorker(
             tasks=tasks,
@@ -2438,8 +2450,9 @@ class MainWindow(QMainWindow):
 
     def _on_align_worker_finished(self) -> None:
         """Safely clean up AlignWorker after its thread has completely terminated."""
+        self._align_busy = False
         self._progress_bar.setVisible(False)
-        self._smart_align_btn.setEnabled(True)
+        self._update_chapter_buttons()
         if self._align_worker is not None:
             self._align_worker.deleteLater()
             self._align_worker = None
@@ -2512,12 +2525,31 @@ class MainWindow(QMainWindow):
         )
 
     def _on_align_cancelled(self) -> None:
+        self._align_busy = False
+        self._progress_bar.setVisible(False)
+        self._update_chapter_buttons()
         self._set_status("Smart Alignment cancelled.")
 
     def _on_align_error(self, err: str) -> None:
+        self._align_busy = False
+        self._progress_bar.setVisible(False)
+        self._update_chapter_buttons()
         self._set_status("Smart Alignment error.")
         if self.isVisible():
             QMessageBox.critical(self, "Smart Alignment Error", err)
+
+    def _warmup_stt_model_background(self) -> None:
+        """Silently preload the active STT model in the background so alignment starts instantly."""
+        from m4bmaker.gui.worker import ModelWarmupWorker
+        from m4bmaker.stt.models import DEFAULT_MODEL, is_model_downloaded
+
+        model_name = str(_prefs_get("stt_model") or DEFAULT_MODEL)
+        if is_model_downloaded(model_name):
+            if getattr(self, "_warmup_worker", None) is not None and self._warmup_worker.isRunning():
+                return
+            self._warmup_worker = ModelWarmupWorker(model_name)
+            self._warmup_worker.finished.connect(lambda: setattr(self, "_warmup_worker", None))
+            self._warmup_worker.start()
 
     def _on_view_log(self) -> None:
         """Open the active log file in the default text viewer."""

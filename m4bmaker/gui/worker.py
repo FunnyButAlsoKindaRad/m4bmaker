@@ -371,6 +371,25 @@ class SplitWorker(QThread):
             self.error.emit(str(exc))
 
 
+class ModelWarmupWorker(QThread):
+    """Pre-warm/cache the WhisperModel in the background to prevent UI lag on first align."""
+
+    def __init__(self, model_name: str) -> None:
+        super().__init__()
+        self._model_name = model_name
+
+    def run(self) -> None:
+        try:
+            from m4bmaker.stt.aligner import get_cached_whisper_model
+            from m4bmaker.stt.models import is_model_downloaded
+
+            if is_model_downloaded(self._model_name):
+                get_cached_whisper_model(self._model_name)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("STT model warmup ignored: %s", exc)
+
+
 class AlignWorker(QThread):
     """Run Speech-to-Text smart chapter alignment in the background."""
 

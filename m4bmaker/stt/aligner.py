@@ -7,6 +7,7 @@ import io
 import logging
 import re
 import subprocess
+import threading
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -184,7 +185,58 @@ def get_title_search_variants(title: str, index: int) -> list[str]:
         if v and v not in seen:
             seen.add(v)
             res.append(v)
-    return res
+_MODEL_CACHE: dict[tuple[str, str, str], Any] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
+
+
+def get_cached_whisper_model(
+    model_name: str = DEFAULT_MODEL,
+    device: str = "cpu",
+    compute_type: str = "int8",
+) -> Any:
+    """Return a cached WhisperModel instance, loading it into memory if not already cached."""
+    key = (model_name, device, compute_type)
+    with _MODEL_CACHE_LOCK:
+        if key in _MODEL_CACHE:
+            return _MODEL_CACHE[key]
+
+        from faster_whisper import WhisperModel
+
+        model_path = get_model_path(model_name)
+        if is_model_downloaded(model_name):
+            load_target = str(model_path)
+        else:
+            load_target = model_name
+
+        _log.info("Loading faster-whisper model '%s' on %s (%s)...", load_target, device, compute_type)
+        try:
+            model = WhisperModel(
+                load_target,
+                device=device,
+                compute_type=compute_type,
+                download_root=str(model_path.parent),
+            )
+        except Exception as exc:
+            _log.warning(
+                "Loading faster-whisper with compute_type='%s' failed (%s); falling back to 'default'",
+                compute_type,
+                exc,
+            )
+            model = WhisperModel(
+                load_target,
+                device=device,
+                compute_type="default",
+                download_root=str(model_path.parent),
+            )
+
+        _MODEL_CACHE[key] = model
+        return model
+
+
+def clear_model_cache() -> None:
+    """Clear cached WhisperModel instances to free memory."""
+    with _MODEL_CACHE_LOCK:
+        _MODEL_CACHE.clear()
 
 
 class AudioAligner:
@@ -214,35 +266,12 @@ class AudioAligner:
         """Load the model into memory if not already cached."""
         if self._model is not None:
             return
+        self._model = get_cached_whisper_model(
+            model_name=self.model_name,
+            device=self.device,
+            compute_type=self.compute_type,
+        )
 
-        from faster_whisper import WhisperModel
-
-        model_path = get_model_path(self.model_name)
-        if is_model_downloaded(self.model_name):
-            load_target = str(model_path)
-        else:
-            load_target = self.model_name
-
-        _log.info("Loading faster-whisper model '%s' on %s (%s)...", load_target, self.device, self.compute_type)
-        try:
-            self._model = WhisperModel(
-                load_target,
-                device=self.device,
-                compute_type=self.compute_type,
-                download_root=str(model_path.parent),
-            )
-        except Exception as exc:
-            _log.warning(
-                "Loading faster-whisper with compute_type='%s' failed (%s); falling back to 'default'",
-                self.compute_type,
-                exc,
-            )
-            self._model = WhisperModel(
-                load_target,
-                device=self.device,
-                compute_type="default",
-                download_root=str(model_path.parent),
-            )
 
     def extract_audio_slice(
         self,
