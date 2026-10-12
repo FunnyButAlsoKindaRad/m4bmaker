@@ -1683,11 +1683,16 @@ class MainWindow(QMainWindow):
         """Rebuild chapter indices and start_times from self._chapter_durations."""
         if self._book is None:
             return
+        has_intro_zero = (
+            len(self._book.chapters) > 0
+            and self._book.chapters[0].index == 0
+        )
+        start_idx = 0 if has_intro_zero else 1
         cursor = 0.0
         for i, (ch, dur) in enumerate(
             zip(self._book.chapters, self._chapter_durations)
         ):
-            ch.index = i + 1
+            ch.index = i + start_idx
             ch.start_time = cursor
             cursor += dur
         self._book.total_duration = cursor
@@ -1916,8 +1921,13 @@ class MainWindow(QMainWindow):
                 self._book.chapters[0].start_time = 0.0
         # Renumber indices only — start_times of surviving chapters (besides
         # a new row 0) are left exactly as they were.
+        has_intro_zero = (
+            len(self._book.chapters) > 0
+            and self._book.chapters[0].index == 0
+        )
+        start_idx = 0 if has_intro_zero else 1
         for i, ch in enumerate(self._book.chapters):
-            ch.index = i + 1
+            ch.index = i + start_idx
 
     def _on_chapter_merge(self) -> None:
         """Merge selected consecutive rows into a single chapter.
@@ -2266,6 +2276,22 @@ class MainWindow(QMainWindow):
         if self._book is None or row >= len(self._book.chapters):
             return
         self._book.chapters[row].start_time = old_start_time_s
+
+        # If Chapter 1 was reverted back to 0:00:00, and an auto-created Chapter 0 exists,
+        # remove Chapter 0 so there isn't a 0-second ghost chapter.
+        if (
+            row == 1
+            and old_start_time_s <= 0.001
+            and len(self._book.chapters) > 1
+            and self._book.chapters[0].index == 0
+        ):
+            del self._book.chapters[0]
+            self._chapter_table.removeRow(0)
+            self._chapter_table.shift_revert_times(-1)
+            self._sync_times_from_table()
+            self._set_status("Reverted Chapter 1 to 0:00:00 and removed lead-in chapter.")
+            return
+
         self._sync_times_from_table()
         self._set_status(f"Reverted chapter {row + 1} to original timestamp.")
 
@@ -2321,6 +2347,9 @@ class MainWindow(QMainWindow):
             if r >= len(self._book.chapters):
                 continue
             ch = self._book.chapters[r]
+            # Chapter 0 is anchored to 0:00:00 as the lead-in chapter; skip aligning it
+            if ch.index == 0 and ch.start_time == 0.0:
+                continue
             src_file = None
             file_dur = None
             if self._mode == "edit":
@@ -2437,6 +2466,50 @@ class MainWindow(QMainWindow):
             self._set_status(f"Alignment completed: 0/{total} aligned ({first_err}).")
         else:
             self._set_status(f"Smart Alignment complete: {succ}/{total} chapter(s) aligned.")
+
+        # Check if pre-chapter (e.g. Chapter 0) should be created for lead-in audio
+        self._check_and_create_pre_chapter()
+
+    def _check_and_create_pre_chapter(self) -> None:
+        """If Chapter 1 starts after threshold with no chapter before it, create Chapter 0 at 00:00:00."""
+        auto_pre = _prefs_get("stt_auto_pre_chapter")
+        if auto_pre is None:
+            auto_pre = True
+        if not auto_pre:
+            return
+
+        if not self._book or not self._book.chapters:
+            return
+
+        threshold_s = float(_prefs_get("stt_pre_chapter_threshold_s") or 3.0)
+        pre_title = str(_prefs_get("stt_pre_chapter_title") or "Chapter 0").strip()
+        if not pre_title:
+            pre_title = "Chapter 0"
+
+        first_ch = self._book.chapters[0]
+        # Only create if the first chapter starts at or after threshold
+        if first_ch.start_time < threshold_s:
+            return
+
+        from m4bmaker.models import Chapter
+        from m4bmaker.gui.widgets import _ms_to_display
+
+        lead_duration = first_ch.start_time
+        pre_ch = Chapter(
+            index=0,
+            start_time=0.0,
+            title=pre_title,
+            source_file=first_ch.source_file,
+        )
+        self._book.chapters.insert(0, pre_ch)
+
+        # Update table and shift existing undo buttons
+        self._chapter_table.prepend_pre_chapter(pre_title, ch_index=0)
+        self._sync_times_from_table()
+        time_str = _ms_to_display(int(lead_duration * 1000))
+        self._set_status(
+            f"Created '{pre_title}' (0:00:00 \u2013 {time_str}) before Chapter 1."
+        )
 
     def _on_align_cancelled(self) -> None:
         self._set_status("Smart Alignment cancelled.")

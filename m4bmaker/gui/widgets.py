@@ -741,8 +741,60 @@ class ChapterTable(QTableWidget):
             "QToolButton { border: none; background: transparent; padding: 2px; border-radius: 3px; }"
             "QToolButton:hover { background: rgba(128, 128, 128, 0.25); }"
         )
-        btn.clicked.connect(lambda checked=False, r=row: self._revert_chapter(r))
+        btn.clicked.connect(lambda checked=False, b=btn: self._on_revert_btn_clicked(b))
         self.setCellWidget(row, self.COL_UNDO, btn)
+
+    def _on_revert_btn_clicked(self, btn: QToolButton) -> None:
+        for r in range(self.rowCount()):
+            if self.cellWidget(r, self.COL_UNDO) is btn:
+                self._revert_chapter(r)
+                break
+
+    def prepend_pre_chapter(self, title: str, ch_index: int = 0) -> None:
+        """Prepend Chapter 0 at row 0 (start time 0:00:00.000) and shift undo states."""
+        self._revert_times = {r + 1: t for r, t in self._revert_times.items()}
+        self.insertRow(0)
+
+        # Column 0 — chapter number (read-only)
+        n = QTableWidgetItem(str(ch_index))
+        n.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+        n.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        n.setForeground(QColor(_INK_MUTED))
+        self.setItem(0, self.COL_NUM, n)
+
+        # Column 1 — start time (0:00:00.000)
+        ti = QTableWidgetItem("0:00:00.000")
+        ti.setFlags(
+            Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsEditable
+        )
+        ti.setForeground(QColor(_INK_MUTED))
+        ti.setData(Qt.ItemDataRole.UserRole, 0)
+        self.setItem(0, self.COL_TIME, ti)
+
+        # Column 2 — title (editable)
+        title_item = QTableWidgetItem(title)
+        title_item.setFlags(
+            Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsEditable
+        )
+        self.setItem(0, self.COL_TITLE, title_item)
+
+        # Column 3 — Undo button placeholder
+        undo_item = QTableWidgetItem("")
+        undo_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+        self.setItem(0, self.COL_UNDO, undo_item)
+
+    def shift_revert_times(self, delta: int) -> None:
+        """Shift row indices in _revert_times by delta (e.g. -1 when row 0 is removed)."""
+        new_times = {}
+        for r, t in self._revert_times.items():
+            new_r = r + delta
+            if new_r >= 0:
+                new_times[new_r] = t
+        self._revert_times = new_times
 
     def _revert_chapter(self, row: int) -> None:
         """Revert chapter at row to its pre-alignment timestamp."""

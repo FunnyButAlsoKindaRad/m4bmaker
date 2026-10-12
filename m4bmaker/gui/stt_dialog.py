@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -166,6 +167,23 @@ class SttSettingsDialog(QDialog):
         self._min_silence_spin.setValue(int(float(prefs.get("stt_min_silence_s") or 0.3) * 1000))
         form.addRow("Min Silence Length:", self._min_silence_spin)
 
+        # ── Pre-Chapter Lead-in (Chapter 0) ───────────────────────────────────
+        self._auto_pre_check = QCheckBox("Auto-create preceding chapter if Chapter 1 starts after audio")
+        self._auto_pre_check.setChecked(
+            bool(prefs.get("stt_auto_pre_chapter") if prefs.get("stt_auto_pre_chapter") is not None else True)
+        )
+        form.addRow("", self._auto_pre_check)
+
+        self._pre_title_edit = QLineEdit(str(prefs.get("stt_pre_chapter_title") or "Chapter 0"))
+        form.addRow("Lead-in Chapter Title:", self._pre_title_edit)
+
+        self._pre_thresh_spin = QDoubleSpinBox()
+        self._pre_thresh_spin.setRange(0.5, 60.0)
+        self._pre_thresh_spin.setSingleStep(0.5)
+        self._pre_thresh_spin.setSuffix(" s")
+        self._pre_thresh_spin.setValue(float(prefs.get("stt_pre_chapter_threshold_s") or 3.0))
+        form.addRow("Lead-in Min Threshold:", self._pre_thresh_spin)
+
         main_layout.addWidget(param_group)
 
         # ── Buttons ──────────────────────────────────────────────────────────
@@ -277,4 +295,7 @@ class SttSettingsDialog(QDialog):
         min_sil = round(self._min_silence_spin.value() / 1000.0, 3)
         prefs.set("stt_min_silence_s", min_sil)
         prefs.set("stt_silence_min_dur_s", min_sil)
+        prefs.set("stt_auto_pre_chapter", self._auto_pre_check.isChecked())
+        prefs.set("stt_pre_chapter_title", self._pre_title_edit.text().strip() or "Chapter 0")
+        prefs.set("stt_pre_chapter_threshold_s", round(float(self._pre_thresh_spin.value()), 2))
         self.accept()

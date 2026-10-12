@@ -27,6 +27,9 @@ _DEFAULTS: dict[str, object] = {
     "dark_mode": False,
     "check_for_updates": True,
     "google_books_api_key": "",
+    "stt_auto_pre_chapter": True,
+    "stt_pre_chapter_title": "Chapter 0",
+    "stt_pre_chapter_threshold_s": 3.0,
 }
 
 
