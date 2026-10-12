@@ -185,6 +185,9 @@ def get_title_search_variants(title: str, index: int) -> list[str]:
         if v and v not in seen:
             seen.add(v)
             res.append(v)
+    return res
+
+
 _MODEL_CACHE: dict[tuple[str, str, str], Any] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
 
