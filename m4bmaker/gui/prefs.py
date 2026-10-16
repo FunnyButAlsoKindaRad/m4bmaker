@@ -27,10 +27,31 @@ _DEFAULTS: dict[str, object] = {
     "dark_mode": False,
     "check_for_updates": True,
     "google_books_api_key": "",
+    "stt_model": "tiny.en",
+    "stt_window_min": 3,
+    "stt_search_window_s": 180.0,
+    "stt_silence_snap": True,
+    "stt_snap_silence": True,
+    "stt_noise_db": -35,
+    "stt_silence_thresh_db": -35.0,
+    "stt_min_silence_s": 0.3,
+    "stt_silence_min_dur_s": 0.3,
     "stt_auto_pre_chapter": True,
     "stt_pre_chapter_title": "Chapter 0",
     "stt_pre_chapter_threshold_s": 3.0,
+    "stt_custom_models": [],
+    "stt_heading_keywords": "chronicle, book, act, section, canto",
+    "stt_prompt_biasing": True,
 }
+
+
+def reset_stt_defaults() -> None:
+    """Reset all STT-related preferences to their factory defaults."""
+    stt_keys = [k for k in _DEFAULTS if k.startswith("stt_") and k != "stt_custom_models"]
+    p = load()
+    for k in stt_keys:
+        p[k] = _DEFAULTS[k]
+    save(p)
 
 
 def _prefs_path() -> Path:

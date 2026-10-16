@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import shutil
@@ -27,16 +28,6 @@ SUPPORTED_MODELS = {
         "repo_id": "Systran/faster-whisper-base.en",
         "approx_size_mb": 145,
         "description": "High Accuracy (~145 MB) - Great for accents & rare titles",
-    },
-    "tiny": {
-        "repo_id": "Systran/faster-whisper-tiny",
-        "approx_size_mb": 75,
-        "description": "Multilingual Fast (~75 MB)",
-    },
-    "base": {
-        "repo_id": "Systran/faster-whisper-base",
-        "approx_size_mb": 145,
-        "description": "Multilingual High Accuracy (~145 MB)",
     },
 }
 
@@ -140,6 +131,11 @@ def get_models_dir() -> Path:
 
 def get_model_path(model_name: str) -> Path:
     """Return the expected directory path for a model."""
+    # If model_name is already an absolute directory path
+    p = Path(model_name)
+    if p.is_dir():
+        return p
+
     clean_name = model_name.split("/")[-1].replace("faster-whisper-", "")
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).parent
@@ -150,7 +146,132 @@ def get_model_path(model_name: str) -> Path:
     if portable_path.is_dir():
         return portable_path
 
-    return get_models_dir() / clean_name
+    # Check portable path with full last segment
+    full_name = model_name.split("/")[-1]
+    if (exe_dir / "models" / full_name).is_dir():
+        return exe_dir / "models" / full_name
+
+    models_dir = get_models_dir()
+    if (models_dir / clean_name).is_dir():
+        return models_dir / clean_name
+    if (models_dir / full_name).is_dir():
+        return models_dir / full_name
+
+    return models_dir / clean_name
+
+
+def validate_local_model(folder: Path) -> tuple[bool, str]:
+    """Check if a local directory contains a valid CTranslate2 Faster-Whisper model."""
+    if not folder.is_dir():
+        return (False, f"Folder does not exist: {folder}")
+    has_bin = (folder / "model.bin").is_file() and (folder / "model.bin").stat().st_size > 1000
+    has_config = (folder / "config.json").is_file() and (folder / "config.json").stat().st_size > 0
+    if has_bin and has_config:
+        return (True, "Valid CTranslate2 model")
+
+    # Check if this is a PyTorch/Safetensors repo
+    has_safetensors = any(folder.glob("*.safetensors")) or (folder / "pytorch_model.bin").is_file()
+    if has_safetensors:
+        return (
+            False,
+            f"The directory '{folder.name}' contains PyTorch/Safetensors weights, not CTranslate2 format.\n\n"
+            "Faster-Whisper requires CTranslate2 format containing 'model.bin' and 'config.json'.\n\n"
+            "You can convert this model using:\n"
+            f"ct2-transformers-converter --model \"{folder}\" --output_dir \"{folder.parent / (folder.name + '-ct2')}\" --quantization int8"
+        )
+    return (False, f"Directory '{folder.name}' is missing 'model.bin' and/or 'config.json'.")
+
+
+def validate_hf_repo_ct2(repo_id: str) -> tuple[bool, str]:
+    """Validate via Hugging Face API whether a repository contains a CTranslate2 model.bin."""
+    clean_repo = repo_id.strip().rstrip("/")
+    if not clean_repo or "/" not in clean_repo:
+        return (
+            False,
+            f"Invalid Hugging Face repo ID '{repo_id}'. Expected format: 'username/model-name' (e.g. 'Systran/faster-whisper-small').",
+        )
+
+    api_url = f"https://huggingface.co/api/models/{clean_repo}"
+    headers = {"User-Agent": "m4Bookmaker/1.0 (https://github.com/FunnyButAlsoKindaRad/m4bmaker)"}
+    req = urllib.request.Request(api_url, headers=headers)
+    ctx = _create_ssl_context()
+
+    try:
+        try:
+            resp = urllib.request.urlopen(req, context=ctx, timeout=10)
+        except ssl.SSLCertVerificationError:
+            unverified_ctx = ssl._create_unverified_context()
+            resp = urllib.request.urlopen(req, context=unverified_ctx, timeout=10)
+
+        raw_data = resp.read().decode("utf-8")
+        resp.close()
+        data = json.loads(raw_data)
+        siblings = data.get("siblings", [])
+        filenames = {s.get("rfilename", "") for s in siblings if isinstance(s, dict)}
+
+        if "model.bin" in filenames:
+            return (True, "Valid CTranslate2 model repository")
+
+        # Check if PyTorch/Safetensors
+        is_safetensors = any(fn.endswith(".safetensors") for fn in filenames) or "pytorch_model.bin" in filenames
+        if is_safetensors:
+            suggested = f"Systran/faster-whisper-{clean_repo.split('/')[-1].replace('whisper-', '')}"
+            return (
+                False,
+                f"Hugging Face repository '{clean_repo}' is in PyTorch/Safetensors format.\n\n"
+                "Faster-Whisper requires CTranslate2 format containing 'model.bin'.\n\n"
+                f"Consider checking for a pre-converted CTranslate2 version (such as '{suggested}' or '{clean_repo}-ct2') "
+                "or convert it locally using:\n"
+                f"ct2-transformers-converter --model {clean_repo} --output_dir models/{clean_repo.split('/')[-1]}-ct2 --quantization int8",
+            )
+
+        return (False, f"Repository '{clean_repo}' does not contain 'model.bin'. It does not appear to be a CTranslate2 model.")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return (False, f"Hugging Face repository '{clean_repo}' was not found (HTTP 404). Please verify the username and repository name.")
+        return (False, f"Could not verify Hugging Face repository '{clean_repo}': HTTP {exc.code} {exc.reason}")
+    except Exception as exc:
+        _log.warning("Could not query Hugging Face API for %s: %s (will allow attempt)", clean_repo, exc)
+        return (True, f"Could not verify online ({exc})")
+
+
+def scan_local_models() -> dict[str, dict]:
+    """Scan models directories for all valid CTranslate2 models."""
+    discovered: dict[str, dict] = {}
+    dirs_to_check = []
+
+    # Portable models dir
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).parent
+    else:
+        exe_dir = Path(__file__).resolve().parent.parent.parent
+    portable_models = exe_dir / "models"
+    if portable_models.is_dir():
+        dirs_to_check.append(portable_models)
+
+    # User data models dir
+    user_models = get_models_dir()
+    if user_models.is_dir() and user_models not in dirs_to_check:
+        dirs_to_check.append(user_models)
+
+    for base_dir in dirs_to_check:
+        try:
+            for sub in sorted(base_dir.iterdir()):
+                if sub.is_dir():
+                    valid, _ = validate_local_model(sub)
+                    if valid:
+                        name = sub.name
+                        sz = sum(f.stat().st_size for f in sub.glob("**/*") if f.is_file())
+                        sz_mb = round(sz / (1024 * 1024), 1)
+                        discovered[name] = {
+                            "path": sub,
+                            "approx_size_mb": sz_mb,
+                            "description": f"Local Model ({sz_mb} MB)",
+                        }
+        except Exception as exc:
+            _log.warning("Error scanning models directory %s: %s", base_dir, exc)
+
+    return discovered
 
 
 def is_model_downloaded(model_name: str) -> bool:
@@ -203,14 +324,22 @@ def download_model(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     info = SUPPORTED_MODELS.get(model_name, {})
-    repo_id = info.get("repo_id", f"Systran/faster-whisper-{model_name}")
+    repo_id = info.get("repo_id", model_name if "/" in model_name else f"Systran/faster-whisper-{model_name}")
 
     if progress_fn:
-        progress_fn(0.02, f"Connecting to Hugging Face ({model_name})...")
+        progress_fn(0.02, f"Validating Hugging Face repository ({repo_id})...")
+
+    # Validate CT2 format before attempting download
+    is_valid, val_msg = validate_hf_repo_ct2(repo_id)
+    if not is_valid:
+        raise ValueError(val_msg)
+
+    if progress_fn:
+        progress_fn(0.05, f"Connecting to Hugging Face ({repo_id})...")
 
     # Strategy 1: Direct HTTP streaming download
     files_to_download = ["config.json", "tokenizer.json", "vocabulary.txt", "model.bin"]
-    approx_mb = info.get("approx_size_mb", 75)
+    approx_mb = info.get("approx_size_mb", 150)
     approx_bytes = approx_mb * 1024 * 1024
 
     direct_failed = False
@@ -244,6 +373,14 @@ def download_model(
                     raise
 
         if is_model_downloaded(model_name):
+            # Save custom model to preferences if not preset
+            if model_name not in SUPPORTED_MODELS:
+                from m4bmaker.gui import prefs
+                custom_models = list(prefs.get("stt_custom_models") or [])
+                if model_name not in custom_models and target_dir.name not in custom_models:
+                    custom_models.append(target_dir.name)
+                    prefs.set("stt_custom_models", custom_models)
+
             if progress_fn:
                 progress_fn(1.0, f"Model '{model_name}' ready.")
             return target_dir
@@ -259,7 +396,7 @@ def download_model(
     if direct_failed or not is_model_downloaded(model_name):
         try:
             if progress_fn:
-                progress_fn(0.2, f"Downloading {model_name} via Hugging Face Hub...")
+                progress_fn(0.2, f"Downloading {repo_id} via Hugging Face Hub...")
             from huggingface_hub import snapshot_download
 
             snapshot_download(
@@ -271,9 +408,16 @@ def download_model(
             _log.error("All download methods failed for %s: %s", model_name, exc)
             raise RuntimeError(
                 f"Could not download model '{model_name}': {exc}.\n\n"
-                f"Note: Faster-Whisper models are open-source and do NOT require an API key or login.\n"
-                f"You can also download files manually into:\n{target_dir}"
+                f"Note: Faster-Whisper models require CTranslate2 format.\n"
+                f"You can also download or place files manually into:\n{target_dir}"
             ) from exc
+
+    if model_name not in SUPPORTED_MODELS:
+        from m4bmaker.gui import prefs
+        custom_models = list(prefs.get("stt_custom_models") or [])
+        if model_name not in custom_models and target_dir.name not in custom_models:
+            custom_models.append(target_dir.name)
+            prefs.set("stt_custom_models", custom_models)
 
     if progress_fn:
         progress_fn(1.0, f"Model '{model_name}' ready.")

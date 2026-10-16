@@ -637,6 +637,7 @@ class ChapterTable(QTableWidget):
         super().__init__(0, 4, parent)
         self._undo_stack = QUndoStack(self)
         self._revert_times: dict[int, float] = {}  # row -> original start_time_s
+        self._custom_cues: dict[int, str] = {}  # row -> custom alignment cue phrase
         self._dark_mode = False
         self._setup()
 
@@ -683,6 +684,7 @@ class ChapterTable(QTableWidget):
         """Replace table contents with *chapters*."""
         self._undo_stack.clear()
         self._revert_times.clear()
+        self._custom_cues.clear()
         self.setRowCount(0)
         for ch in chapters:
             row = self.rowCount()
@@ -753,6 +755,7 @@ class ChapterTable(QTableWidget):
     def prepend_pre_chapter(self, title: str, ch_index: int = 0) -> None:
         """Prepend Chapter 0 at row 0 (start time 0:00:00.000) and shift undo states."""
         self._revert_times = {r + 1: t for r, t in self._revert_times.items()}
+        self._custom_cues = {r + 1: c for r, c in self._custom_cues.items()}
         self.insertRow(0)
 
         # Column 0 — chapter number (read-only)
@@ -795,6 +798,12 @@ class ChapterTable(QTableWidget):
             if new_r >= 0:
                 new_times[new_r] = t
         self._revert_times = new_times
+        new_cues = {}
+        for r, c in self._custom_cues.items():
+            new_r = r + delta
+            if new_r >= 0:
+                new_cues[new_r] = c
+        self._custom_cues = new_cues
 
     def _revert_chapter(self, row: int) -> None:
         """Revert chapter at row to its pre-alignment timestamp."""
@@ -808,6 +817,21 @@ class ChapterTable(QTableWidget):
 
     def has_revert_history(self, row: int) -> bool:
         return row in self._revert_times
+
+    def get_custom_cue(self, row: int) -> Optional[str]:
+        return self._custom_cues.get(row)
+
+    def set_custom_cue(self, row: int, cue: str) -> None:
+        if cue and cue.strip():
+            self._custom_cues[row] = cue.strip()
+            item = self.item(row, self.COL_TITLE)
+            if item:
+                item.setToolTip(f'Alignment Cue: "{cue.strip()}"')
+        else:
+            self._custom_cues.pop(row, None)
+            item = self.item(row, self.COL_TITLE)
+            if item:
+                item.setToolTip("")
 
     def highlight_playing_chapter(self, row: int) -> None:
         """Highlight the currently playing chapter."""
@@ -910,6 +934,7 @@ class ChapterTable(QTableWidget):
     def _show_context_menu(self, pos: QPoint) -> None:
         menu = QMenu(self)
         menu.addAction("Smart Align Selected (Speech-to-Text)…", self.smart_align_requested.emit)
+        menu.addAction("Set Alignment Cue Phrase…", self._set_custom_cue_dialog)
         menu.addAction("Align all chapters to player position", self.align_to_player_requested.emit)
         menu.addSeparator()
         menu.addAction("Find / Replace…", self._find_replace)
@@ -1045,6 +1070,21 @@ class ChapterTable(QTableWidget):
         after = self._snapshot_titles()
         if before != after:
             self._undo_stack.push(_TitlesCommand(self, before, after))
+
+    def _set_custom_cue_dialog(self) -> None:
+        rows = self._selected_rows()
+        if not rows:
+            return
+        initial = self._custom_cues.get(rows[0], "") if len(rows) == 1 else ""
+        text, ok = QInputDialog.getText(
+            self,
+            "Set Alignment Cue Phrase",
+            "Custom phrase to listen for (leave empty to use chapter title):",
+            text=initial,
+        )
+        if ok:
+            for r in rows:
+                self.set_custom_cue(r, text)
 
     def _clear_titles(self) -> None:
         before = self._snapshot_titles()

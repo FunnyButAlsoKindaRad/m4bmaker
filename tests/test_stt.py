@@ -241,5 +241,86 @@ def test_canonical_token_and_compute_token_match() -> None:
     ratio, _ = compute_token_match(["part", "14"], ["after", "i"])
     assert ratio == 0.0
 
+def test_chronicle_heading_search_variants() -> None:
+    """Verify chapter titles like 'Chronicle One: The Marked Man' correctly generate variants."""
+    v = get_title_search_variants("Chronicle One: The Marked Man", 1)
+    assert "chronicle 1" in v
+    assert "chronicle one" in v
+    assert "chronicle 1 the marked man" in v
+    assert "chronicle one the marked man" in v
+    assert "the marked man" in v
 
+
+def test_custom_heading_keywords() -> None:
+    """Verify custom heading keywords generate expected variants."""
+    v = get_title_search_variants("Canticle 5: The Song", 5, custom_keywords=["canticle"])
+    assert "canticle 5" in v
+    assert "canticle five" in v
+
+
+def test_validate_local_model(tmp_path: Path) -> None:
+    from m4bmaker.stt.models import validate_local_model
+
+    # Non-existent folder
+    is_valid, msg = validate_local_model(tmp_path / "nonexistent")
+    assert not is_valid
+
+    # Empty folder
+    m_dir = tmp_path / "test_model"
+    m_dir.mkdir()
+    is_valid, msg = validate_local_model(m_dir)
+    assert not is_valid
+    assert "missing 'model.bin'" in msg
+
+    # Safetensors folder
+    (m_dir / "model.safetensors").write_bytes(b"x" * 2000)
+    is_valid, msg = validate_local_model(m_dir)
+    assert not is_valid
+    assert "PyTorch/Safetensors" in msg
+
+    # Valid CT2 model
+    (m_dir / "model.bin").write_bytes(b"x" * 2000)
+    (m_dir / "config.json").write_text("{}", encoding="utf-8")
+    is_valid, msg = validate_local_model(m_dir)
+    assert is_valid
+    assert "Valid CTranslate2" in msg
+
+
+def test_validate_hf_repo_ct2() -> None:
+    from unittest.mock import MagicMock, patch
+    from m4bmaker.stt.models import validate_hf_repo_ct2
+
+    # Invalid repo string
+    is_valid, msg = validate_hf_repo_ct2("invalid-repo-without-slash")
+    assert not is_valid
+    assert "Expected format" in msg
+
+    # Valid repo response mock
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = b'{"siblings": [{"rfilename": "model.bin"}, {"rfilename": "config.json"}]}'
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        is_valid, msg = validate_hf_repo_ct2("Systran/faster-whisper-tiny.en")
+        assert is_valid
+        assert "Valid CTranslate2" in msg
+
+    # Safetensors response mock
+    mock_st_resp = MagicMock()
+    mock_st_resp.read.return_value = b'{"siblings": [{"rfilename": "model.safetensors"}, {"rfilename": "config.json"}]}'
+    with patch("urllib.request.urlopen", return_value=mock_st_resp):
+        is_valid, msg = validate_hf_repo_ct2("openai/whisper-large-v3")
+        assert not is_valid
+        assert "PyTorch/Safetensors" in msg
+
+
+def test_prefs_reset_stt_defaults() -> None:
+    from m4bmaker.gui import prefs
+
+    prefs.set("stt_window_min", 9)
+    prefs.set("stt_pre_chapter_title", "Custom Intro")
+    assert prefs.get("stt_window_min") == 9
+    assert prefs.get("stt_pre_chapter_title") == "Custom Intro"
+
+    prefs.reset_stt_defaults()
+    assert prefs.get("stt_window_min") == 3
+    assert prefs.get("stt_pre_chapter_title") == "Chapter 0"
 

@@ -130,49 +130,97 @@ def normalize_text(text: str) -> str:
     return " ".join(cleaned.split())
 
 
-def get_title_search_variants(title: str, index: int) -> list[str]:
-    """Generate search phrases for a chapter heading (e.g. 'Chapter 4: The Inn' -> variants)."""
+DEFAULT_HEADING_KEYWORDS = [
+    "chapter", "part", "book", "chronicle", "act", "scene",
+    "section", "episode", "volume", "canto", "letter", "track", "story"
+]
+
+
+def get_title_search_variants(
+    title: str,
+    index: int,
+    custom_keywords: Optional[list[str]] = None,
+) -> list[str]:
+    """Generate search phrases for a chapter heading (e.g. 'Chronicle One: The Marked Man' -> variants)."""
     norm = normalize_text(title)
     variants = [norm]
 
-    # Extract digits or roman numerals
+    # Combine default keywords with user custom keywords
+    all_keywords = list(DEFAULT_HEADING_KEYWORDS)
+    if custom_keywords:
+        for kw in custom_keywords:
+            c_kw = kw.strip().lower()
+            if c_kw and c_kw not in all_keywords:
+                all_keywords.append(c_kw)
+
+    # 1. Extract number:
+    # First: check digits (\b\d+\b)
     m_num = re.search(r"\b(\d+)\b", norm)
     num_val: Optional[int] = None
     if m_num:
         num_val = int(m_num.group(1))
     else:
-        # Check roman
+        # Second: check number words in norm (e.g. "one", "two", "fourteen")
         for word in norm.split():
-            if word in _ROMAN_MAP:
-                num_val = _ROMAN_MAP[word]
+            if word in _WORD_TO_NUM:
+                num_val = int(_WORD_TO_NUM[word])
                 break
+        # Third: check roman numerals (e.g. "iv", "ix")
+        if num_val is None:
+            for word in norm.split():
+                if word in _ROMAN_MAP:
+                    num_val = _ROMAN_MAP[word]
+                    break
 
     if num_val is None and index > 0:
         num_val = index
 
-    # Stripped subtitle without "chapter X", "part X", or leading digits
-    sub_title = re.sub(r"^chapter\s+\w+\s*", "", norm).strip()
-    sub_title = re.sub(r"^part\s+\w+\s*", "", sub_title).strip()
-    sub_title = re.sub(r"^\d+\s*", "", sub_title).strip()
+    # 2. Identify heading prefix keyword (e.g. "chronicle", "chapter", "book")
+    matched_prefix: Optional[str] = None
+    for kw in all_keywords:
+        if re.search(rf"\b{re.escape(kw)}\b", norm):
+            matched_prefix = kw
+            break
 
+    # 3. Extract subtitle without heading keyword, number, or roman numeral
+    sub_title = norm
+    if matched_prefix:
+        sub_title = re.sub(rf"\b{re.escape(matched_prefix)}\b", "", sub_title)
+    if num_val is not None:
+        sub_title = re.sub(rf"\b{num_val}\b", "", sub_title)
+        w_word = _NUM_WORDS.get(num_val)
+        if w_word:
+            sub_title = re.sub(rf"\b{re.escape(w_word)}\b", "", sub_title)
+        for r_num, r_val in _ROMAN_MAP.items():
+            if r_val == num_val:
+                sub_title = re.sub(rf"\b{re.escape(r_num)}\b", "", sub_title)
+    sub_title = " ".join(sub_title.split())
+
+    prefix = matched_prefix if matched_prefix else "chapter"
     if num_val is not None:
         word_num = _NUM_WORDS.get(num_val)
-        variants.append(f"chapter {num_val}")
-        if word_num:
-            variants.append(f"chapter {word_num}")
-        variants.append(f"part {num_val}")
-        if word_num:
-            variants.append(f"part {word_num}")
 
-        # Subtitle combinations with chapter/part/number
+        # Primary heading prefix variants: "chronicle 1", "chronicle one"
+        variants.append(f"{prefix} {num_val}")
+        if word_num:
+            variants.append(f"{prefix} {word_num}")
+
+        # Subtitle combinations
         if sub_title and len(sub_title) > 2:
-            variants.append(f"chapter {num_val} {sub_title}")
+            variants.append(f"{prefix} {num_val} {sub_title}")
+            if word_num:
+                variants.append(f"{prefix} {word_num} {sub_title}")
             variants.append(f"{num_val} {sub_title}")
             if word_num:
-                variants.append(f"chapter {word_num} {sub_title}")
                 variants.append(f"{word_num} {sub_title}")
 
-        # Single canonical number token as fallback
+        # Standard "chapter X" fallback if prefix was different (e.g. "book 1" -> also try "chapter 1")
+        if prefix != "chapter":
+            variants.append(f"chapter {num_val}")
+            if word_num:
+                variants.append(f"chapter {word_num}")
+
+        # Single canonical number token as last fallback
         variants.append(str(num_val))
 
     if sub_title and len(sub_title) > 3:
@@ -327,6 +375,9 @@ class AudioAligner:
         min_silence_s: Optional[float] = None,
         row: Optional[int] = None,
         ffmpeg_bin: Optional[str] = None,
+        custom_keywords: Optional[list[str]] = None,
+        custom_cue: Optional[str] = None,
+        use_prompt_biasing: bool = True,
         **kwargs: Any,
     ) -> AlignmentResult:
         """Transcribe around estimated_time_s and pinpoint the spoken chapter title."""
@@ -390,10 +441,18 @@ class AudioAligner:
 
         transcribe_lang = "en" if self.model_name.endswith(".en") else None
         audio_f32 = wav_bytes_to_float32(wav_bytes)
+
+        # Contextual prompt biasing to prime Whisper decoder on chapter vocabulary
+        initial_prompt = None
+        if use_prompt_biasing and (chapter_title or custom_cue):
+            cue_text = custom_cue if custom_cue else chapter_title
+            initial_prompt = f"Chapter heading: {cue_text}."
+
         segments, _ = self._model.transcribe(
             audio_f32,
             word_timestamps=True,
             language=transcribe_lang,
+            initial_prompt=initial_prompt,
             vad_filter=False,
         )
 
@@ -421,7 +480,16 @@ class AudioAligner:
                 row=target_row,
             )
 
-        variants = get_title_search_variants(chapter_title, chapter_index)
+        variants = get_title_search_variants(chapter_title, chapter_index, custom_keywords=custom_keywords)
+        if custom_cue:
+            clean_cue = normalize_text(custom_cue)
+            if clean_cue:
+                # Insert custom cue phrases at the very top of variants
+                variants.insert(0, clean_cue)
+                for variant in get_title_search_variants(clean_cue, chapter_index, custom_keywords=custom_keywords):
+                    if variant not in variants:
+                        variants.insert(1, variant)
+
         best_match_idx: Optional[int] = None
         best_score = 0.0
         best_phrase = ""

@@ -2407,6 +2407,7 @@ class MainWindow(QMainWindow):
                 "file": Path(src_file),
                 "estimated_s": ch.start_time,
                 "file_dur": file_dur,
+                "custom_cue": self._chapter_table.get_custom_cue(r),
             })
 
         if not tasks:
@@ -2432,6 +2433,12 @@ class MainWindow(QMainWindow):
 
         self._set_status(f"Aligning {len(tasks)} chapter(s) with {model_name}...")
 
+        custom_kw_str = str(_prefs_get("stt_heading_keywords") or "")
+        custom_keywords = [k.strip() for k in custom_kw_str.split(",") if k.strip()] if custom_kw_str else None
+        prompt_biasing = bool(
+            _prefs_get("stt_prompt_biasing") if _prefs_get("stt_prompt_biasing") is not None else True
+        )
+
         self._align_worker = AlignWorker(
             tasks=tasks,
             model_name=model_name,
@@ -2439,6 +2446,8 @@ class MainWindow(QMainWindow):
             snap_silence=snap_silence,
             silence_thresh_db=silence_thresh,
             silence_min_dur_s=silence_min_dur,
+            custom_keywords=custom_keywords,
+            use_prompt_biasing=prompt_biasing,
         )
         self._align_worker.progress.connect(self._on_progress)
         self._align_worker.chapter_aligned.connect(self._on_chapter_aligned)

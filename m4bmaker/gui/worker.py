@@ -407,6 +407,8 @@ class AlignWorker(QThread):
         snap_silence: bool = True,
         silence_thresh_db: float = -35.0,
         silence_min_dur_s: float = 0.4,
+        custom_keywords: Optional[list[str]] = None,
+        use_prompt_biasing: bool = True,
     ) -> None:
         super().__init__()
         self._tasks = tasks
@@ -415,6 +417,8 @@ class AlignWorker(QThread):
         self._snap_silence = snap_silence
         self._silence_thresh_db = silence_thresh_db
         self._silence_min_dur_s = silence_min_dur_s
+        self._custom_keywords = custom_keywords
+        self._use_prompt_biasing = use_prompt_biasing
         self._cancel_event = threading.Event()
 
     def request_cancel(self) -> None:
@@ -460,6 +464,9 @@ class AlignWorker(QThread):
                     estimated_time_s=task["estimated_s"],
                     file_duration_s=task.get("file_dur"),
                     row=task.get("row"),
+                    custom_keywords=self._custom_keywords,
+                    custom_cue=task.get("custom_cue"),
+                    use_prompt_biasing=self._use_prompt_biasing,
                 )
                 results.append(res)
                 self.chapter_aligned.emit(res)
