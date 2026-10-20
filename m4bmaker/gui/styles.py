@@ -537,6 +537,36 @@ QProgressBar#jobProgress::chunk {
     background-color: #c45a2d;
     border-radius: 2px;
 }
+QProgressBar#sttDownloadProgress {
+    border: 1px solid #333333;
+    border-radius: 4px;
+    background-color: #2e2e2e;
+    text-align: center;
+    font-size: 11px;
+    font-weight: bold;
+    color: #f5f2ed;
+    min-height: 20px;
+    max-height: 20px;
+}
+QProgressBar#sttDownloadProgress::chunk {
+    background-color: #c45a2d;
+    border-radius: 3px;
+}
+QProgressBar#sttDownloadProgress {
+    border: 1px solid #d0c9be;
+    border-radius: 4px;
+    background-color: #ebe6dd;
+    text-align: center;
+    font-size: 11px;
+    font-weight: bold;
+    color: #1a1a1a;
+    min-height: 20px;
+    max-height: 20px;
+}
+QProgressBar#sttDownloadProgress::chunk {
+    background-color: #c45a2d;
+    border-radius: 3px;
+}
 """
 
 # ── Dark mode palette ─────────────────────────────────────────────────────────

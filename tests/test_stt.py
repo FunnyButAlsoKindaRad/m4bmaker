@@ -324,3 +324,33 @@ def test_prefs_reset_stt_defaults() -> None:
     assert prefs.get("stt_window_min") == 3
     assert prefs.get("stt_pre_chapter_title") == "Chapter 0"
 
+
+
+def test_stt_dialog_ui_components(qtbot=None) -> None:
+    from PySide6.QtWidgets import QApplication
+    from m4bmaker.gui.stt_dialog import SttSettingsDialog
+
+    app = QApplication.instance() or QApplication([])
+    dlg = SttSettingsDialog()
+
+    assert dlg._progress_bar.objectName() == "sttDownloadProgress"
+    assert dlg._progress_bar.minimumHeight() == 20
+    assert dlg._adv_progress_bar.objectName() == "sttDownloadProgress"
+    assert dlg._adv_progress_bar.minimumHeight() == 20
+
+    dlg._on_download_progress(0.75, "Downloading model.bin...")
+    assert dlg._progress_bar.value() == 75
+    assert dlg._adv_progress_bar.value() == 75
+    assert dlg._adv_status_lbl.text() == "Downloading model.bin..."
+
+    app.clipboard().setText("Systran/faster-whisper-small")
+    dlg._on_paste_repo_id()
+    assert dlg._hf_repo_edit.text() == "Systran/faster-whisper-small"
+    assert not dlg._paste_action.isEnabled()
+    assert dlg._paste_action.toolTip() == "Pasted from clipboard"
+
+    dlg._hf_repo_edit.textEdited.emit("Systran/faster-whisper-tiny")
+    assert dlg._paste_action.isEnabled()
+    assert dlg._paste_action.toolTip() == "Paste from clipboard"
+
+    dlg.close()

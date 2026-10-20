@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -29,6 +31,8 @@ from PySide6.QtWidgets import (
 )
 
 from m4bmaker.gui import prefs
+from m4bmaker.gui.icons import load_svg_icon
+from m4bmaker.gui.svg_icons import CHECK_SVG, PASTE_SVG, QUESTION_MARK_SVG
 from m4bmaker.stt.models import (
     DEFAULT_MODEL,
     SUPPORTED_MODELS,
@@ -44,12 +48,55 @@ from m4bmaker.stt.models import (
 _log = logging.getLogger(__name__)
 
 
-def _make_hint_label(text: str) -> QLabel:
-    """Create a subtle hint / settings suggestion badge label."""
+class InfoIcon(QLabel):
+    """Question mark info icon displaying an informative hoverable tooltip card."""
+
+    def __init__(self, tooltip: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(16, 16)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(tooltip)
+        self._update_icon(hover=False)
+
+    def _update_icon(self, hover: bool) -> None:
+        color = "#2196f3" if hover else "#9a9a9a"
+        icon = load_svg_icon(QUESTION_MARK_SVG, color, 14)
+        self.setPixmap(icon.pixmap(14, 14))
+
+    def enterEvent(self, event: object) -> None:
+        self._update_icon(hover=True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: object) -> None:
+        self._update_icon(hover=False)
+        super().leaveEvent(event)
+
+
+def _make_field_label(text: str, tooltip: str) -> QWidget:
+    """Label combined with a hoverable info icon for QFormLayout rows."""
+    w = QWidget()
+    lay = QHBoxLayout(w)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(4)
     lbl = QLabel(text)
-    lbl.setWordWrap(True)
-    lbl.setStyleSheet("color: #777777; font-size: 11px; font-style: italic; margin-bottom: 6px;")
-    return lbl
+    icon = InfoIcon(tooltip)
+    lay.addWidget(lbl)
+    lay.addWidget(icon)
+    lay.addStretch()
+    return w
+
+
+def _make_checkbox_with_info(checkbox: QCheckBox, tooltip: str) -> QWidget:
+    """Checkbox combined with a hoverable info icon."""
+    w = QWidget()
+    lay = QHBoxLayout(w)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(6)
+    lay.addWidget(checkbox)
+    lay.addWidget(InfoIcon(tooltip))
+    lay.addStretch()
+    return w
 
 
 class ModelDownloadWorker(QThread):
@@ -99,9 +146,16 @@ class SttSettingsDialog(QDialog):
         # 1. Speech-to-Text Model Group
         model_group = QGroupBox("Speech-to-Text Model")
         model_layout = QVBoxLayout(model_group)
+        model_layout.setSpacing(8)
 
         row_model = QHBoxLayout()
         row_model.addWidget(QLabel("Active Model:"))
+        row_model.addWidget(
+            InfoIcon(
+                "'tiny.en' (~75 MB) is fastest and ideal for most audiobooks.\n"
+                "'base.en' (~145 MB) provides higher accuracy for varied accents and rare titles."
+            )
+        )
         self._model_combo = QComboBox()
         self._model_combo.currentIndexChanged.connect(self._on_model_selection_changed)
         row_model.addWidget(self._model_combo, 1)
@@ -123,20 +177,21 @@ class SttSettingsDialog(QDialog):
         model_layout.addLayout(status_row)
 
         self._progress_bar = QProgressBar()
+        self._progress_bar.setObjectName("sttDownloadProgress")
+        self._progress_bar.setMinimumHeight(20)
+        self._progress_bar.setMaximumHeight(20)
+        self._progress_bar.setTextVisible(True)
+        self._progress_bar.setFormat("%p%")
+        self._progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._progress_bar.setVisible(False)
         model_layout.addWidget(self._progress_bar)
 
-        model_hint = _make_hint_label(
-            "💡 Suggestion: 'tiny.en' (~75 MB) is fastest and ideal for most audiobooks. "
-            "'base.en' (~145 MB) provides higher accuracy for varied accents and rare titles."
-        )
-        model_layout.addWidget(model_hint)
         standard_layout.addWidget(model_group)
 
         # 2. Alignment Parameters Group
         align_group = QGroupBox("Alignment & Search Parameters")
         align_form = QFormLayout(align_group)
-        align_form.setVerticalSpacing(4)
+        align_form.setVerticalSpacing(8)
 
         # Search window radius
         window_box = QHBoxLayout()
@@ -151,13 +206,14 @@ class SttSettingsDialog(QDialog):
         )
         window_box.addWidget(self._window_slider, 1)
         window_box.addWidget(self._window_lbl)
-        align_form.addRow("Search Window:", window_box)
         align_form.addRow(
-            "",
-            _make_hint_label(
-                "💡 Suggestion: Recommended: ±3 min. Search radius around the estimated chapter timestamp. "
-                "Increase if chapter cues diverge widely from estimates."
+            _make_field_label(
+                "Search Window:",
+                "Search radius around the estimated chapter timestamp.\n"
+                "Increase if chapter cues diverge widely from estimates.\n\n"
+                "Recommended: ±3 min",
             ),
+            window_box,
         )
 
         # Silence snapping
@@ -165,12 +221,12 @@ class SttSettingsDialog(QDialog):
         self._snap_check.setChecked(
             bool(prefs.get("stt_silence_snap") if prefs.get("stt_silence_snap") is not None else True)
         )
-        align_form.addRow("", self._snap_check)
         align_form.addRow(
             "",
-            _make_hint_label(
-                "💡 Suggestion: Recommended: Enabled. Snaps chapter boundary to silence before speech starts "
-                "to avoid cutting off the narrator's first words."
+            _make_checkbox_with_info(
+                self._snap_check,
+                "Snaps chapter boundary to silence before speech starts to avoid cutting off the narrator's first words.\n\n"
+                "Recommended: Enabled",
             ),
         )
 
@@ -179,13 +235,20 @@ class SttSettingsDialog(QDialog):
         # 3. Pre-Chapter Lead-in (Chapter 0) Group
         lead_group = QGroupBox("Opening Lead-in (Chapter 0)")
         lead_form = QFormLayout(lead_group)
-        lead_form.setVerticalSpacing(4)
+        lead_form.setVerticalSpacing(8)
 
         self._auto_pre_check = QCheckBox("Auto-create preceding chapter if Chapter 1 starts after audio begins")
         self._auto_pre_check.setChecked(
             bool(prefs.get("stt_auto_pre_chapter") if prefs.get("stt_auto_pre_chapter") is not None else True)
         )
-        lead_form.addRow("", self._auto_pre_check)
+        lead_form.addRow(
+            "",
+            _make_checkbox_with_info(
+                self._auto_pre_check,
+                "If Chapter 1 begins after the specified threshold, automatically creates a lead-in chapter starting at 0:00:00.\n\n"
+                "Recommended: Enabled",
+            ),
+        )
 
         self._pre_title_edit = QLineEdit(str(prefs.get("stt_pre_chapter_title") or "Chapter 0"))
         lead_form.addRow("Lead-in Chapter Title:", self._pre_title_edit)
@@ -195,13 +258,14 @@ class SttSettingsDialog(QDialog):
         self._pre_thresh_spin.setSingleStep(0.5)
         self._pre_thresh_spin.setSuffix(" s")
         self._pre_thresh_spin.setValue(float(prefs.get("stt_pre_chapter_threshold_s") or 3.0))
-        lead_form.addRow("Lead-in Min Threshold:", self._pre_thresh_spin)
         lead_form.addRow(
-            "",
-            _make_hint_label(
-                "💡 Suggestion: Recommended: 3.0s threshold. If Chapter 1 begins after 3.0s of opening music "
-                "or intro preamble, automatically creates Chapter 0 anchored to 0:00:00."
+            _make_field_label(
+                "Lead-in Min Threshold:",
+                "Minimum offset required before creating a preceding chapter.\n"
+                "If Chapter 1 starts earlier than this threshold, it snaps to 0:00:00 without creating Chapter 0.\n\n"
+                "Recommended: 3.0 s (Title: 'Chapter 0')",
             ),
+            self._pre_thresh_spin,
         )
 
         standard_layout.addWidget(lead_group)
@@ -216,9 +280,16 @@ class SttSettingsDialog(QDialog):
         # 1. Models Storage & Local Discovery
         storage_group = QGroupBox("Models Directory & Local Folder Scan")
         storage_layout = QVBoxLayout(storage_group)
+        storage_layout.setSpacing(8)
 
         dir_row = QHBoxLayout()
         dir_row.addWidget(QLabel("Folder:"))
+        dir_row.addWidget(
+            InfoIcon(
+                "Place offline CTranslate2 model folders inside this directory, "
+                "then click 'Scan Folder Now' to automatically detect and add them to Active Model."
+            )
+        )
         self._dir_edit = QLineEdit(str(get_models_dir()))
         self._dir_edit.setReadOnly(True)
         dir_row.addWidget(self._dir_edit, 1)
@@ -235,89 +306,126 @@ class SttSettingsDialog(QDialog):
         scan_row.addStretch()
         storage_layout.addLayout(scan_row)
 
-        storage_hint = _make_hint_label(
-            "💡 Suggestion: Place offline CTranslate2 model folders inside this directory, "
-            "then click 'Scan Folder Now' to automatically detect and add them to Active Model."
-        )
-        storage_layout.addWidget(storage_hint)
         adv_layout.addWidget(storage_group)
 
         # 2. Custom Hugging Face Model Download
         hf_group = QGroupBox("Download Custom Hugging Face Model")
         hf_layout = QVBoxLayout(hf_group)
+        hf_layout.setSpacing(8)
 
         hf_row = QHBoxLayout()
         hf_row.addWidget(QLabel("Repo ID:"))
+        hf_row.addWidget(
+            InfoIcon(
+                "Download custom models directly from Hugging Face.\n"
+                "Models must be in CTranslate2 format (containing 'model.bin' and 'config.json').\n"
+                "The repository is pre-validated before downloading."
+            )
+        )
         self._hf_repo_edit = QLineEdit()
         self._hf_repo_edit.setPlaceholderText("e.g. Systran/faster-whisper-small or deepdml/faster-whisper-large-v3-turbo")
+
+        # Trailing paste button inside the Repo ID field
+        paste_pix = load_svg_icon(PASTE_SVG, "#888888", 16).pixmap(16, 16)
+        self._paste_icon = QIcon()
+        self._paste_icon.addPixmap(paste_pix, QIcon.Mode.Normal)
+
+        check_pix = load_svg_icon(CHECK_SVG, "#4caf50", 16).pixmap(16, 16)
+        self._check_icon = QIcon()
+        self._check_icon.addPixmap(check_pix, QIcon.Mode.Normal)
+        self._check_icon.addPixmap(check_pix, QIcon.Mode.Disabled)
+
+        self._paste_action = self._hf_repo_edit.addAction(
+            self._paste_icon, QLineEdit.ActionPosition.TrailingPosition
+        )
+        self._paste_action.setToolTip("Paste from clipboard")
+        self._paste_action.triggered.connect(self._on_paste_repo_id)
+        self._hf_repo_edit.textEdited.connect(lambda _t: self._set_repo_paste_state(pasted=False))
+
         hf_row.addWidget(self._hf_repo_edit, 1)
         self._hf_dl_btn = QPushButton("Download Model")
         self._hf_dl_btn.clicked.connect(self._on_download_custom_hf_clicked)
         hf_row.addWidget(self._hf_dl_btn)
         hf_layout.addLayout(hf_row)
 
-        hf_hint = _make_hint_label(
-            "💡 Suggestion: Download custom models directly from Hugging Face. Models must be in CTranslate2 "
-            "format (containing 'model.bin' and 'config.json'). The repository is pre-validated before downloading."
-        )
-        hf_layout.addWidget(hf_hint)
+        self._adv_status_lbl = QLabel("")
+        self._adv_status_lbl.setStyleSheet("font-weight: bold;")
+        self._adv_status_lbl.setVisible(False)
+        hf_layout.addWidget(self._adv_status_lbl)
+
+        self._adv_progress_bar = QProgressBar()
+        self._adv_progress_bar.setObjectName("sttDownloadProgress")
+        self._adv_progress_bar.setMinimumHeight(20)
+        self._adv_progress_bar.setMaximumHeight(20)
+        self._adv_progress_bar.setTextVisible(True)
+        self._adv_progress_bar.setFormat("%p%")
+        self._adv_progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._adv_progress_bar.setVisible(False)
+        hf_layout.addWidget(self._adv_progress_bar)
+
         adv_layout.addWidget(hf_group)
 
         # 3. Custom Heading Keywords & Speech Biasing
         cue_group = QGroupBox("Chapter Heading Keywords & Cue Recognition")
-        cue_layout = QVBoxLayout(cue_group)
-        cue_form = QFormLayout()
-        cue_form.setVerticalSpacing(4)
+        cue_form = QFormLayout(cue_group)
+        cue_form.setVerticalSpacing(8)
 
         self._keywords_edit = QLineEdit(str(prefs.get("stt_heading_keywords") or "chronicle, book, act, section, canto"))
-        cue_form.addRow("Heading Keywords:", self._keywords_edit)
         cue_form.addRow(
-            "",
-            _make_hint_label(
-                "💡 Suggestion: Recommended: chronicle, book, act, section, canto. Comma-separated structural words. "
-                "Ensures chapter start is anchored before the heading word (e.g. 'Chronicle One')."
+            _make_field_label(
+                "Heading Keywords:",
+                "Comma-separated structural words. Ensures chapter start is anchored before the heading word "
+                "(e.g. before 'Chronicle' in 'Chronicle One').\n\n"
+                "Recommended: chronicle, book, act, section, canto",
             ),
+            self._keywords_edit,
         )
 
         self._biasing_check = QCheckBox("Enable speech prompt biasing (Whisper initial_prompt)")
         self._biasing_check.setChecked(
             bool(prefs.get("stt_prompt_biasing") if prefs.get("stt_prompt_biasing") is not None else True)
         )
-        cue_form.addRow("", self._biasing_check)
         cue_form.addRow(
             "",
-            _make_hint_label(
-                "💡 Suggestion: Recommended: Enabled. Primes Whisper with expected chapter titles to "
-                "greatly improve recognition in noisy intros or over background music."
+            _make_checkbox_with_info(
+                self._biasing_check,
+                "Primes Whisper with expected chapter titles to greatly improve recognition in noisy intros or over background music.\n\n"
+                "Recommended: Enabled",
             ),
         )
 
-        cue_layout.addLayout(cue_form)
         adv_layout.addWidget(cue_group)
 
         # 4. Advanced Silence Detection Tuning
         silence_group = QGroupBox("Silence Detection Tuning")
         silence_form = QFormLayout(silence_group)
-        silence_form.setVerticalSpacing(4)
+        silence_form.setVerticalSpacing(8)
 
         self._noise_spin = QSpinBox()
         self._noise_spin.setRange(-60, -15)
         self._noise_spin.setSuffix(" dB")
         self._noise_spin.setValue(int(prefs.get("stt_noise_db") or -35))
-        silence_form.addRow("Silence Noise Floor:", self._noise_spin)
+        silence_form.addRow(
+            _make_field_label(
+                "Silence Noise Floor:",
+                "Audio quieter than this dB threshold is recognized as potential silence.\n\n"
+                "Recommended: -35 dB",
+            ),
+            self._noise_spin,
+        )
 
         self._min_silence_spin = QSpinBox()
         self._min_silence_spin.setRange(100, 2000)
         self._min_silence_spin.setSingleStep(50)
         self._min_silence_spin.setSuffix(" ms")
         self._min_silence_spin.setValue(int(float(prefs.get("stt_min_silence_s") or 0.3) * 1000))
-        silence_form.addRow("Min Silence Length:", self._min_silence_spin)
         silence_form.addRow(
-            "",
-            _make_hint_label(
-                "💡 Suggestion: Recommended: -35 dB / 300 ms. Audio quieter than this threshold for at least "
-                "this length is considered an inter-sentence or chapter pause."
+            _make_field_label(
+                "Min Silence Length:",
+                "Minimum silence pause duration required before splitting or snapping.\n\n"
+                "Recommended: 300 ms",
             ),
+            self._min_silence_spin,
         )
 
         adv_layout.addWidget(silence_group)
@@ -414,6 +522,26 @@ class SttSettingsDialog(QDialog):
     def _on_model_selection_changed(self) -> None:
         self._update_model_status()
 
+    # ── Clipboard Paste in Repo ID ───────────────────────────────────────────
+
+    def _set_repo_paste_state(self, pasted: bool) -> None:
+        """Switch trailing button between clickable paste icon and non-clickable checkmark."""
+        if pasted:
+            self._paste_action.setIcon(self._check_icon)
+            self._paste_action.setToolTip("Pasted from clipboard")
+            self._paste_action.setEnabled(False)
+        else:
+            self._paste_action.setIcon(self._paste_icon)
+            self._paste_action.setToolTip("Paste from clipboard")
+            self._paste_action.setEnabled(True)
+
+    def _on_paste_repo_id(self) -> None:
+        """Paste clipboard content into the Repo ID field and turn button into a checkmark."""
+        text = QApplication.clipboard().text().strip()
+        if text:
+            self._hf_repo_edit.setText(text)
+            self._set_repo_paste_state(pasted=True)
+
     # ── Folder Actions ───────────────────────────────────────────────────────
 
     def _on_browse_models_dir(self) -> None:
@@ -487,11 +615,20 @@ class SttSettingsDialog(QDialog):
         self._dl_btn.setEnabled(False)
         self._del_btn.setEnabled(False)
         self._hf_dl_btn.setEnabled(False)
-        self._progress_bar.setVisible(True)
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setValue(0)
-        self._status_lbl.setText(f"Connecting to Hugging Face for {model_name}…")
-        self._status_lbl.setStyleSheet("color: #2196f3;")
+
+        # Show and reset both progress bars in Standard and Advanced tabs
+        for pbar in (self._progress_bar, self._adv_progress_bar):
+            pbar.setVisible(True)
+            pbar.setRange(0, 100)
+            pbar.setValue(0)
+
+        status_msg = f"Connecting to Hugging Face for {model_name}…"
+        self._status_lbl.setText(status_msg)
+        self._status_lbl.setStyleSheet("color: #2196f3; font-weight: bold;")
+
+        self._adv_status_lbl.setVisible(True)
+        self._adv_status_lbl.setText(status_msg)
+        self._adv_status_lbl.setStyleSheet("color: #2196f3; font-weight: bold;")
 
         self._download_worker = ModelDownloadWorker(model_name)
         self._download_worker.progress.connect(self._on_download_progress)
@@ -500,14 +637,20 @@ class SttSettingsDialog(QDialog):
         self._download_worker.start()
 
     def _on_download_progress(self, frac: float, msg: str) -> None:
-        self._progress_bar.setValue(int(frac * 100))
+        percent = int(frac * 100)
+        self._progress_bar.setValue(percent)
         self._status_lbl.setText(msg)
+        self._adv_progress_bar.setValue(percent)
+        self._adv_status_lbl.setText(msg)
 
     def _on_download_success(self, model: str) -> None:
         self._progress_bar.setVisible(False)
+        self._adv_progress_bar.setVisible(False)
+        self._adv_status_lbl.setVisible(False)
         self._dl_btn.setEnabled(True)
         self._hf_dl_btn.setEnabled(True)
         self._hf_repo_edit.clear()
+        self._set_repo_paste_state(pasted=False)
 
         # Add to custom models list if not a standard preset
         if model not in SUPPORTED_MODELS:
@@ -528,6 +671,8 @@ class SttSettingsDialog(QDialog):
 
     def _on_download_error(self, err_msg: str) -> None:
         self._progress_bar.setVisible(False)
+        self._adv_progress_bar.setVisible(False)
+        self._adv_status_lbl.setVisible(False)
         self._dl_btn.setEnabled(True)
         self._hf_dl_btn.setEnabled(True)
         self._update_model_status()
