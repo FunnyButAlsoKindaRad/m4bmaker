@@ -274,6 +274,35 @@ def scan_local_models() -> dict[str, dict]:
     return discovered
 
 
+def sanitize_model_config(folder: Path) -> None:
+    """Sanitize config.json in model directory to prevent CTranslate2 crashes.
+
+    Distilled models (such as kotoba-whisper or distil-whisper) frequently retain
+    large-v3's alignment_heads referencing decoder layers up to 25. Because distilled
+    models only have 2 decoder layers, CTranslate2 segfaults when word_timestamps=True.
+    This safely resets alignment_heads to valid layers.
+    """
+    cfg_file = folder / "config.json"
+    if not cfg_file.is_file():
+        return
+    try:
+        with open(cfg_file, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        heads = cfg.get("alignment_heads")
+        if heads and isinstance(heads, list):
+            has_high_layer = any(isinstance(h, list) and len(h) >= 1 and h[0] >= 6 for h in heads)
+            bin_file = folder / "model.bin"
+            is_distilled = any(k in str(folder).lower() for k in ["distil", "kotoba"])
+            is_small = bin_file.is_file() and bin_file.stat().st_size < 1_800_000_000
+            if (is_distilled or is_small) and has_high_layer:
+                _log.warning("Sanitizing corrupted alignment_heads in %s to prevent CTranslate2 crash", cfg_file)
+                cfg["alignment_heads"] = [[0, 0], [1, 0]]
+                with open(cfg_file, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2)
+    except Exception as exc:
+        _log.warning("Could not sanitize config.json in %s: %s", folder, exc)
+
+
 def is_model_downloaded(model_name: str) -> bool:
     """Check if model files exist on disk."""
     path = get_model_path(model_name)
@@ -338,7 +367,14 @@ def download_model(
         progress_fn(0.05, f"Connecting to Hugging Face ({repo_id})...")
 
     # Strategy 1: Direct HTTP streaming download
-    files_to_download = ["config.json", "tokenizer.json", "vocabulary.txt", "model.bin"]
+    files_to_download = [
+        "config.json",
+        "preprocessor_config.json",
+        "tokenizer.json",
+        "vocabulary.txt",
+        "model.bin",
+    ]
+    optional_files = {"preprocessor_config.json"}
     approx_mb = info.get("approx_size_mb", 150)
     approx_bytes = approx_mb * 1024 * 1024
 
@@ -369,8 +405,12 @@ def download_model(
                     alt_dest = target_dir / alt_fname
                     _download_file_stream(alt_url, alt_dest)
                     total_downloaded += alt_dest.stat().st_size
+                elif fname in optional_files and http_err.code == 404:
+                    _log.debug("Optional model file %s not found in %s, skipping", fname, repo_id)
                 else:
                     raise
+
+        sanitize_model_config(target_dir)
 
         if is_model_downloaded(model_name):
             # Save custom model to preferences if not preset

@@ -8,6 +8,7 @@ import logging
 import re
 import subprocess
 import threading
+import unicodedata
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,12 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
-from m4bmaker.stt.models import DEFAULT_MODEL, get_model_path, is_model_downloaded
+from m4bmaker.stt.models import (
+    DEFAULT_MODEL,
+    get_model_path,
+    is_model_downloaded,
+    sanitize_model_config,
+)
 from m4bmaker.stt.silence import snap_to_preceding_silence
 from m4bmaker.utils import find_ffmpeg, subprocess_flags
 
@@ -36,17 +42,75 @@ _ROMAN_MAP = {
     "xi": 11, "xii": 12, "xiii": 13, "xiv": 14, "xv": 15, "xvi": 16, "xvii": 17, "xviii": 18, "xix": 19, "xx": 20,
 }
 
+_KANJI_DIGITS = {
+    "〇": 0, "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
+    "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+}
+_KANJI_TO_NUM = {k: str(v) for k, v in _KANJI_DIGITS.items()}
+
 _WORD_TO_NUM = {v: str(k) for k, v in _NUM_WORDS.items()}
 _ROMAN_TO_NUM = {k: str(v) for k, v in _ROMAN_MAP.items()}
 
+_CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
+
+
+def has_cjk(text: str) -> bool:
+    """Return True if text contains Chinese, Japanese, or Korean characters."""
+    return bool(_CJK_RE.search(text))
+
+
+def parse_kanji_number(text: str) -> Optional[int]:
+    """Parse a Japanese Kanji numeral string (e.g. '一', '十二', '二十五', '百') into an integer."""
+    text = text.strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    if text == "百":
+        return 100
+    if "百" in text:
+        parts = text.split("百", 1)
+        hundreds = _KANJI_DIGITS.get(parts[0], 1) if parts[0] else 1
+        remainder = parse_kanji_number(parts[1]) if parts[1] else 0
+        return hundreds * 100 + (remainder or 0)
+    if "十" in text:
+        parts = text.split("十", 1)
+        tens = _KANJI_DIGITS.get(parts[0], 1) if parts[0] else 1
+        ones = _KANJI_DIGITS.get(parts[1], 0) if parts[1] else 0
+        return tens * 10 + ones
+    if len(text) == 1 and text in _KANJI_DIGITS:
+        return _KANJI_DIGITS[text]
+    val = 0
+    for ch in text:
+        if ch in _KANJI_DIGITS:
+            val = val * 10 + _KANJI_DIGITS[ch]
+        else:
+            return None
+    return val if val > 0 else None
+
+
+def int_to_kanji(num: int) -> str:
+    """Convert integer 1-99 to standard Japanese Kanji numeral."""
+    if num <= 0 or num >= 100:
+        return str(num)
+    kanji_ones = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+    if num < 10:
+        return kanji_ones[num]
+    tens = num // 10
+    ones = num % 10
+    prefix = "十" if tens == 1 else f"{kanji_ones[tens]}十"
+    return f"{prefix}{kanji_ones[ones]}"
+
 
 def canonical_token(tok: str) -> str:
-    """Normalize a token so numbers in word, roman, or digit form match uniformly."""
+    """Normalize a token so numbers in word, roman, kanji, or digit form match uniformly."""
     cleaned = tok.lower().strip()
     if cleaned in _WORD_TO_NUM:
         return _WORD_TO_NUM[cleaned]
     if cleaned in _ROMAN_TO_NUM:
         return _ROMAN_TO_NUM[cleaned]
+    if cleaned in _KANJI_TO_NUM:
+        return _KANJI_TO_NUM[cleaned]
     return cleaned
 
 
@@ -63,6 +127,19 @@ def compute_token_match(target_tokens: list[str], window_tokens: list[str]) -> t
 
     if t_canon == w_canon:
         return (1.0, True)
+
+    # Check for CJK direct substring or unspaced exact match
+    t_raw = "".join(target_tokens)
+    w_raw = "".join(window_tokens)
+    if has_cjk(t_raw) or has_cjk(w_raw):
+        t_canon_raw = "".join(t_canon)
+        w_canon_raw = "".join(w_canon)
+        if t_canon_raw == w_canon_raw:
+            return (1.0, True)
+        if len(t_canon_raw) >= 2 and (t_canon_raw in w_canon_raw or w_canon_raw in t_canon_raw):
+            ratio = min(len(t_canon_raw), len(w_canon_raw)) / max(len(t_canon_raw), len(w_canon_raw))
+            if ratio >= 0.7:
+                return (ratio, False)
 
     # If target contains a number token, window MUST contain that exact number token!
     # This prevents 'fourteen' from fuzzy matching 'forgotten', or 'ten' matching 'often'.
@@ -125,8 +202,9 @@ def wav_bytes_to_float32(wav_bytes: bytes) -> np.ndarray:
 
 
 def normalize_text(text: str) -> str:
-    """Lowercase and strip punctuation to space-delimited words."""
-    cleaned = re.sub(r"[^\w\s]", " ", text.lower())
+    """Lowercase and strip punctuation to space-delimited words, applying Unicode NFKC normalization."""
+    normalized = unicodedata.normalize("NFKC", text)
+    cleaned = re.sub(r"[^\w\s]", " ", normalized.lower())
     return " ".join(cleaned.split())
 
 
@@ -144,6 +222,8 @@ def get_title_search_variants(
     """Generate search phrases for a chapter heading (e.g. 'Chronicle One: The Marked Man' -> variants)."""
     norm = normalize_text(title)
     variants = [norm]
+    if has_cjk(norm):
+        variants.append(norm.replace(" ", ""))
 
     # Combine default keywords with user custom keywords
     all_keywords = list(DEFAULT_HEADING_KEYWORDS)
@@ -153,78 +233,116 @@ def get_title_search_variants(
             if c_kw and c_kw not in all_keywords:
                 all_keywords.append(c_kw)
 
-    # 1. Extract number:
-    # First: check digits (\b\d+\b)
-    m_num = re.search(r"\b(\d+)\b", norm)
-    num_val: Optional[int] = None
-    if m_num:
-        num_val = int(m_num.group(1))
+    # Check for Japanese chapter counter patterns (e.g. "第一章", "第1章", "3話", "第二部")
+    m_jp = re.search(r"第?([0-9一二三四五六七八九十百]+)([章話部幕巻節])", norm)
+    if m_jp:
+        num_str = m_jp.group(1)
+        counter = m_jp.group(2)
+        num_val = int(num_str) if num_str.isdigit() else parse_kanji_number(num_str)
+        if num_val is None and index > 0:
+            num_val = index
+
+        if num_val is not None:
+            kanji_num = int_to_kanji(num_val)
+            variants.append(f"第{num_val}{counter}")
+            variants.append(f"第{kanji_num}{counter}")
+            variants.append(f"{num_val}{counter}")
+            variants.append(f"{kanji_num}{counter}")
+
+            # Subtitle without the heading counter
+            sub_title = re.sub(re.escape(m_jp.group(0)), "", norm).strip()
+            # Clean trailing standalone digits or kanji numbers
+            sub_title_clean = re.sub(r"\b[0-9一二三四五六七八九十百]+\b", "", sub_title).strip()
+            sub_title_clean = " ".join(sub_title_clean.split())
+
+            for st in [sub_title, sub_title_clean]:
+                if st and len(st) > 1:
+                    variants.append(f"第{num_val}{counter} {st}")
+                    variants.append(f"第{kanji_num}{counter} {st}")
+                    variants.append(f"第{num_val}{counter}{st}")
+                    variants.append(f"第{kanji_num}{counter}{st}")
+                    variants.append(st)
+                    variants.append(st.replace(" ", ""))
+
+            variants.append(str(num_val))
     else:
-        # Second: check number words in norm (e.g. "one", "two", "fourteen")
-        for word in norm.split():
-            if word in _WORD_TO_NUM:
-                num_val = int(_WORD_TO_NUM[word])
-                break
-        # Third: check roman numerals (e.g. "iv", "ix")
-        if num_val is None:
+        # 1. Extract number:
+        # First: check digits (\b\d+\b)
+        m_num = re.search(r"\b(\d+)\b", norm)
+        num_val: Optional[int] = None
+        if m_num:
+            num_val = int(m_num.group(1))
+        else:
+            # Second: check number words in norm (e.g. "one", "two", "fourteen")
             for word in norm.split():
-                if word in _ROMAN_MAP:
-                    num_val = _ROMAN_MAP[word]
+                if word in _WORD_TO_NUM:
+                    num_val = int(_WORD_TO_NUM[word])
                     break
+            # Third: check roman numerals (e.g. "iv", "ix")
+            if num_val is None:
+                for word in norm.split():
+                    if word in _ROMAN_MAP:
+                        num_val = _ROMAN_MAP[word]
+                        break
 
-    if num_val is None and index > 0:
-        num_val = index
+        if num_val is None and index > 0:
+            num_val = index
 
-    # 2. Identify heading prefix keyword (e.g. "chronicle", "chapter", "book")
-    matched_prefix: Optional[str] = None
-    for kw in all_keywords:
-        if re.search(rf"\b{re.escape(kw)}\b", norm):
-            matched_prefix = kw
-            break
+        # 2. Identify heading prefix keyword (e.g. "chronicle", "chapter", "book")
+        matched_prefix: Optional[str] = None
+        for kw in all_keywords:
+            if re.search(rf"\b{re.escape(kw)}\b", norm):
+                matched_prefix = kw
+                break
 
-    # 3. Extract subtitle without heading keyword, number, or roman numeral
-    sub_title = norm
-    if matched_prefix:
-        sub_title = re.sub(rf"\b{re.escape(matched_prefix)}\b", "", sub_title)
-    if num_val is not None:
-        sub_title = re.sub(rf"\b{num_val}\b", "", sub_title)
-        w_word = _NUM_WORDS.get(num_val)
-        if w_word:
-            sub_title = re.sub(rf"\b{re.escape(w_word)}\b", "", sub_title)
-        for r_num, r_val in _ROMAN_MAP.items():
-            if r_val == num_val:
-                sub_title = re.sub(rf"\b{re.escape(r_num)}\b", "", sub_title)
-    sub_title = " ".join(sub_title.split())
+        # 3. Extract subtitle without heading keyword, number, or roman numeral
+        sub_title = norm
+        if matched_prefix:
+            sub_title = re.sub(rf"\b{re.escape(matched_prefix)}\b", "", sub_title)
+        if num_val is not None:
+            sub_title = re.sub(rf"\b{num_val}\b", "", sub_title)
+            w_word = _NUM_WORDS.get(num_val)
+            if w_word:
+                sub_title = re.sub(rf"\b{re.escape(w_word)}\b", "", sub_title)
+            for r_num, r_val in _ROMAN_MAP.items():
+                if r_val == num_val:
+                    sub_title = re.sub(rf"\b{re.escape(r_num)}\b", "", sub_title)
+        sub_title = " ".join(sub_title.split())
 
-    prefix = matched_prefix if matched_prefix else "chapter"
-    if num_val is not None:
-        word_num = _NUM_WORDS.get(num_val)
+        prefix = matched_prefix if matched_prefix else "chapter"
+        if num_val is not None:
+            word_num = _NUM_WORDS.get(num_val)
 
-        # Primary heading prefix variants: "chronicle 1", "chronicle one"
-        variants.append(f"{prefix} {num_val}")
-        if word_num:
-            variants.append(f"{prefix} {word_num}")
-
-        # Subtitle combinations
-        if sub_title and len(sub_title) > 2:
-            variants.append(f"{prefix} {num_val} {sub_title}")
+            # Primary heading prefix variants: "chronicle 1", "chronicle one"
+            variants.append(f"{prefix} {num_val}")
             if word_num:
-                variants.append(f"{prefix} {word_num} {sub_title}")
-            variants.append(f"{num_val} {sub_title}")
-            if word_num:
-                variants.append(f"{word_num} {sub_title}")
+                variants.append(f"{prefix} {word_num}")
 
-        # Standard "chapter X" fallback if prefix was different (e.g. "book 1" -> also try "chapter 1")
-        if prefix != "chapter":
-            variants.append(f"chapter {num_val}")
-            if word_num:
-                variants.append(f"chapter {word_num}")
+            # Subtitle combinations
+            if sub_title and len(sub_title) > 2:
+                variants.append(f"{prefix} {num_val} {sub_title}")
+                if word_num:
+                    variants.append(f"{prefix} {word_num} {sub_title}")
+                variants.append(f"{num_val} {sub_title}")
+                if word_num:
+                    variants.append(f"{word_num} {sub_title}")
 
-        # Single canonical number token as last fallback
-        variants.append(str(num_val))
+            # Standard "chapter X" fallback if prefix was different (e.g. "book 1" -> also try "chapter 1")
+            if prefix != "chapter":
+                variants.append(f"chapter {num_val}")
+                if word_num:
+                    variants.append(f"chapter {word_num}")
 
-    if sub_title and len(sub_title) > 3:
-        variants.append(sub_title)
+            # Single canonical number token as last fallback
+            variants.append(str(num_val))
+
+        if sub_title and len(sub_title) > 3:
+            variants.append(sub_title)
+
+    # Check for Japanese standalone book keywords
+    for kw in ["序章", "プロローグ", "エピローグ", "終章", "あとがき", "幕間"]:
+        if kw in norm:
+            variants.append(kw)
 
     # Unique, sorted by token count descending, then length descending
     seen = set()
@@ -254,6 +372,9 @@ def get_cached_whisper_model(
         from faster_whisper import WhisperModel
 
         model_path = get_model_path(model_name)
+        if model_path.is_dir():
+            sanitize_model_config(model_path)
+
         if is_model_downloaded(model_name):
             load_target = str(model_path)
         else:
@@ -280,6 +401,15 @@ def get_cached_whisper_model(
                 download_root=str(model_path.parent),
             )
 
+        # Auto-adjust feature extractor mel filters (e.g. 128 for Whisper-v3 / Kotoba vs 80 default)
+        expected_mels = getattr(model.model, "n_mels", None)
+        if expected_mels and hasattr(model, "feature_extractor"):
+            if model.feature_extractor.mel_filters.shape[0] != expected_mels:
+                from faster_whisper.feature_extractor import FeatureExtractor
+
+                _log.info("Auto-adjusting feature extractor mel filters to %d", expected_mels)
+                model.feature_extractor = FeatureExtractor(feature_size=expected_mels)
+
         _MODEL_CACHE[key] = model
         return model
 
@@ -302,6 +432,7 @@ class AudioAligner:
         snap_to_silence: bool = True,
         silence_thresh_db: float = -35.0,
         silence_min_dur_s: float = 0.3,
+        language: str = "auto",
         **kwargs: Any,
     ) -> None:
         self.model_name = model_name
@@ -311,6 +442,7 @@ class AudioAligner:
         self.snap_to_silence = snap_to_silence
         self.silence_thresh_db = silence_thresh_db
         self.silence_min_dur_s = silence_min_dur_s
+        self.language = language
         self._model = None
 
     def _ensure_model(self) -> None:
@@ -322,7 +454,6 @@ class AudioAligner:
             device=self.device,
             compute_type=self.compute_type,
         )
-
 
     def extract_audio_slice(
         self,
@@ -378,6 +509,7 @@ class AudioAligner:
         custom_keywords: Optional[list[str]] = None,
         custom_cue: Optional[str] = None,
         use_prompt_biasing: bool = True,
+        language: Optional[str] = None,
         **kwargs: Any,
     ) -> AlignmentResult:
         """Transcribe around estimated_time_s and pinpoint the spoken chapter title."""
@@ -439,14 +571,24 @@ class AudioAligner:
                 row=target_row,
             )
 
-        transcribe_lang = "en" if self.model_name.endswith(".en") else None
+        active_lang = language if language is not None else self.language
+        if active_lang and active_lang != "auto":
+            transcribe_lang = active_lang
+        elif self.model_name.endswith(".en"):
+            transcribe_lang = "en"
+        else:
+            transcribe_lang = None
+
         audio_f32 = wav_bytes_to_float32(wav_bytes)
 
         # Contextual prompt biasing to prime Whisper decoder on chapter vocabulary
         initial_prompt = None
         if use_prompt_biasing and (chapter_title or custom_cue):
             cue_text = custom_cue if custom_cue else chapter_title
-            initial_prompt = f"Chapter heading: {cue_text}."
+            if has_cjk(cue_text):
+                initial_prompt = cue_text
+            else:
+                initial_prompt = f"Chapter heading: {cue_text}."
 
         segments, _ = self._model.transcribe(
             audio_f32,
@@ -454,6 +596,7 @@ class AudioAligner:
             language=transcribe_lang,
             initial_prompt=initial_prompt,
             vad_filter=False,
+            condition_on_previous_text=False,
         )
 
         all_words = []
@@ -504,24 +647,53 @@ class AudioAligner:
             if k == 0:
                 continue
 
+            target_compact = "".join(target_tokens)
+            is_cjk_target = has_cjk(target_compact)
             is_single = (k == 1)
             min_thresh = 0.85 if is_single else 0.70
 
+            # 1. Standard word token sliding window
             for i in range(len(clean_words) - k + 1):
                 window_tokens = clean_words[i : i + k]
                 ratio, is_canon = compute_token_match(target_tokens, window_tokens)
-                if ratio < min_thresh:
-                    continue
+                if ratio >= min_thresh:
+                    abs_time = slice_start_s + all_words[i].start
+                    dist_penalty = min(0.15, abs(abs_time - estimated_time_s) / (win_s * 10))
+                    len_bonus = 0.10 if not is_single else 0.0
+                    adjusted_score = ratio + len_bonus - dist_penalty
+                    if adjusted_score > best_score:
+                        best_score = adjusted_score
+                        best_match_idx = i
+                        best_phrase = " ".join(window_tokens)
 
-                abs_time = slice_start_s + all_words[i].start
-                dist_penalty = min(0.15, abs(abs_time - estimated_time_s) / (win_s * 10))
-                len_bonus = 0.10 if not is_single else 0.0
-                adjusted_score = ratio + len_bonus - dist_penalty
+            # 2. CJK multi-token concatenated matching (handles Japanese unspaced tokens)
+            if is_cjk_target and len(target_compact) >= 2:
+                t_canon_compact = "".join(canonical_token(t) for t in target_tokens)
+                max_w = min(12, len(clean_words))
+                for i in range(len(clean_words)):
+                    accum = []
+                    for w_len in range(1, max_w + 1):
+                        if i + w_len > len(clean_words):
+                            break
+                        accum.append(canonical_token(clean_words[i + w_len - 1]))
+                        w_compact = "".join(accum)
+                        if len(w_compact) > len(t_canon_compact) + 4:
+                            break
+                        if w_compact == t_canon_compact:
+                            ratio = 1.0
+                        elif len(t_canon_compact) >= 3 and (t_canon_compact in w_compact or w_compact in t_canon_compact):
+                            ratio = min(len(t_canon_compact), len(w_compact)) / max(len(t_canon_compact), len(w_compact))
+                        else:
+                            continue
 
-                if adjusted_score > best_score:
-                    best_score = adjusted_score
-                    best_match_idx = i
-                    best_phrase = " ".join(window_tokens)
+                        if ratio >= 0.75:
+                            abs_time = slice_start_s + all_words[i].start
+                            dist_penalty = min(0.15, abs(abs_time - estimated_time_s) / (win_s * 10))
+                            adjusted_score = ratio + 0.10 - dist_penalty
+                            if adjusted_score > best_score:
+                                best_score = adjusted_score
+                                best_match_idx = i
+                                best_phrase = "".join(clean_words[i : i + w_len])
 
         if best_match_idx is None:
             snippet = " ".join(full_text_parts)[:150]

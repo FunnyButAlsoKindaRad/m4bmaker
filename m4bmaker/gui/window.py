@@ -2438,6 +2438,7 @@ class MainWindow(QMainWindow):
         prompt_biasing = bool(
             _prefs_get("stt_prompt_biasing") if _prefs_get("stt_prompt_biasing") is not None else True
         )
+        stt_lang = str(_prefs_get("stt_language") or "auto")
 
         self._align_worker = AlignWorker(
             tasks=tasks,
@@ -2448,6 +2449,7 @@ class MainWindow(QMainWindow):
             silence_min_dur_s=silence_min_dur,
             custom_keywords=custom_keywords,
             use_prompt_biasing=prompt_biasing,
+            language=stt_lang,
         )
         self._align_worker.progress.connect(self._on_progress)
         self._align_worker.chapter_aligned.connect(self._on_chapter_aligned)

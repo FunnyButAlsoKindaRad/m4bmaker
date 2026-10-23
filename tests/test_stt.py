@@ -354,3 +354,88 @@ def test_stt_dialog_ui_components(qtbot=None) -> None:
     assert dlg._paste_action.toolTip() == "Paste from clipboard"
 
     dlg.close()
+
+
+def test_kanji_number_parsing() -> None:
+    from m4bmaker.stt.aligner import parse_kanji_number, int_to_kanji
+
+    assert parse_kanji_number("一") == 1
+    assert parse_kanji_number("二") == 2
+    assert parse_kanji_number("三") == 3
+    assert parse_kanji_number("十") == 10
+    assert parse_kanji_number("十一") == 11
+    assert parse_kanji_number("二十") == 20
+    assert parse_kanji_number("二十三") == 23
+    assert parse_kanji_number("百") == 100
+    assert parse_kanji_number("12") == 12
+
+    assert int_to_kanji(1) == "一"
+    assert int_to_kanji(3) == "三"
+    assert int_to_kanji(10) == "十"
+    assert int_to_kanji(15) == "十五"
+    assert int_to_kanji(21) == "二十一"
+
+
+def test_japanese_chapter_search_variants() -> None:
+    from m4bmaker.stt.aligner import get_title_search_variants
+
+    variants = get_title_search_variants("第一章～先輩はバニーガール・一", 3)
+    assert "第1章" in variants
+    assert "第一章" in variants
+    assert "1章" in variants
+    assert "一章" in variants
+    assert "先輩はバニーガール" in variants
+    assert "1" in variants
+
+    # Digits with Japanese counter
+    variants2 = get_title_search_variants("第12話 最終決戦", 12)
+    assert "第12話" in variants2
+    assert "第十二話" in variants2
+    assert "12話" in variants2
+    assert "最終決戦" in variants2
+
+
+def test_unicode_nfkc_normalization() -> None:
+    from m4bmaker.stt.aligner import normalize_text
+
+    # Fullwidth digits and characters
+    norm = normalize_text("第１章～先輩")
+    assert "1" in norm
+    assert "章" in norm
+
+
+def test_parse_audible_input() -> None:
+    from m4bmaker.providers import parse_audible_input
+
+    # Raw ASIN
+    asin, reg = parse_audible_input("B0841ZVX5R")
+    assert asin == "B0841ZVX5R"
+    assert reg is None
+
+    # Japanese URL
+    asin_jp, reg_jp = parse_audible_input("https://www.audible.co.jp/pd/B0841ZVX5R?qid=123")
+    assert asin_jp == "B0841ZVX5R"
+    assert reg_jp == "jp"
+
+    # German URL
+    asin_de, reg_de = parse_audible_input("https://www.audible.de/pd/B0841ZVX5R")
+    assert asin_de == "B0841ZVX5R"
+    assert reg_de == "de"
+
+
+def test_sanitize_model_config(tmp_path: Path) -> None:
+    import json
+    from m4bmaker.stt.models import sanitize_model_config
+
+    model_dir = tmp_path / "kotoba-whisper-test"
+    model_dir.mkdir()
+    # Create config with corrupted large-v3 alignment heads referencing layer 25
+    cfg = {"alignment_heads": [[7, 0], [10, 17], [25, 6]]}
+    (model_dir / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    (model_dir / "model.bin").write_bytes(b"x" * 5000)
+
+    sanitize_model_config(model_dir)
+
+    sanitized = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
+    assert sanitized["alignment_heads"] == [[0, 0], [1, 0]]
+

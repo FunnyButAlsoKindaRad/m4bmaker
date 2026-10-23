@@ -42,26 +42,43 @@ class MetadataFetcherDialog(QDialog):
         id_group = QGroupBox("Identifiers")
         id_layout = QGridLayout(id_group)
 
-        id_layout.addWidget(QLabel("Audible ASIN:"), 0, 0)
+        id_layout.addWidget(QLabel("Audible ASIN / URL:"), 0, 0)
         self.asin_edit = QLineEdit()
+        self.asin_edit.setPlaceholderText("ASIN (e.g. B0841ZVX5R) or Audible URL")
+        self.asin_edit.textChanged.connect(self._on_asin_text_changed)
         id_layout.addWidget(self.asin_edit, 0, 1)
         test_asin_btn = QPushButton("Test")
         test_asin_btn.clicked.connect(self._test_audible)
         id_layout.addWidget(test_asin_btn, 0, 2)
 
-        id_layout.addWidget(QLabel("Google Books ID:"), 1, 0)
+        id_layout.addWidget(QLabel("Audible Marketplace:"), 1, 0)
+        self.region_combo = QComboBox()
+        self.region_combo.addItem("Auto-Detect (Global Search)", "auto")
+        self.region_combo.addItem("United States (.com)", "us")
+        self.region_combo.addItem("Japan (.co.jp)", "jp")
+        self.region_combo.addItem("United Kingdom (.co.uk)", "uk")
+        self.region_combo.addItem("Germany (.de)", "de")
+        self.region_combo.addItem("Canada (.ca)", "ca")
+        self.region_combo.addItem("Australia (.com.au)", "au")
+        self.region_combo.addItem("France (.fr)", "fr")
+        self.region_combo.addItem("Italy (.it)", "it")
+        self.region_combo.addItem("India (.in)", "in")
+        self.region_combo.addItem("Spain (.es)", "es")
+        id_layout.addWidget(self.region_combo, 1, 1, 1, 2)
+
+        id_layout.addWidget(QLabel("Google Books ID:"), 2, 0)
         self.google_edit = QLineEdit()
-        id_layout.addWidget(self.google_edit, 1, 1)
+        id_layout.addWidget(self.google_edit, 2, 1)
         test_google_btn = QPushButton("Test")
         test_google_btn.clicked.connect(self._test_google)
-        id_layout.addWidget(test_google_btn, 1, 2)
+        id_layout.addWidget(test_google_btn, 2, 2)
 
-        id_layout.addWidget(QLabel("iTunes ID:"), 2, 0)
+        id_layout.addWidget(QLabel("iTunes ID:"), 3, 0)
         self.itunes_edit = QLineEdit()
-        id_layout.addWidget(self.itunes_edit, 2, 1)
+        id_layout.addWidget(self.itunes_edit, 3, 1)
         test_itunes_btn = QPushButton("Test")
         test_itunes_btn.clicked.connect(self._test_itunes)
-        id_layout.addWidget(test_itunes_btn, 2, 2)
+        id_layout.addWidget(test_itunes_btn, 3, 2)
 
         layout.addWidget(id_group)
 
@@ -99,12 +116,22 @@ class MetadataFetcherDialog(QDialog):
         btn_box.addWidget(cancel_btn)
         layout.addLayout(btn_box)
 
+    def _on_asin_text_changed(self, text: str) -> None:
+        from m4bmaker.providers import parse_audible_input
+
+        _, parsed_reg = parse_audible_input(text)
+        if parsed_reg:
+            idx = self.region_combo.findData(parsed_reg)
+            if idx >= 0:
+                self.region_combo.setCurrentIndex(idx)
+
     def _test_audible(self):
         asin = self.asin_edit.text().strip()
         if not asin:
-            QMessageBox.warning(self, "Error", "Enter ASIN first.")
+            QMessageBox.warning(self, "Error", "Enter Audible ASIN or URL first.")
             return
-        meta, chap, cov = fetch_audnexus_data(asin, 0.0)
+        region = self.region_combo.currentData() or "auto"
+        meta, chap, cov = fetch_audnexus_data(asin, 0.0, region=region)
         self._data_cache["audible"] = {"meta": meta, "chapters": chap, "cover": cov}
         self._show_test_result("Audible", meta, chap, cov)
 

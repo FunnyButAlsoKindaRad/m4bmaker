@@ -42,6 +42,7 @@ _DEFAULTS: dict[str, object] = {
     "stt_custom_models": [],
     "stt_heading_keywords": "chronicle, book, act, section, canto",
     "stt_prompt_biasing": True,
+    "stt_language": "auto",
 }
 
 

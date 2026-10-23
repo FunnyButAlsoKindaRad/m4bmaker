@@ -409,6 +409,7 @@ class AlignWorker(QThread):
         silence_min_dur_s: float = 0.4,
         custom_keywords: Optional[list[str]] = None,
         use_prompt_biasing: bool = True,
+        language: str = "auto",
     ) -> None:
         super().__init__()
         self._tasks = tasks
@@ -419,6 +420,7 @@ class AlignWorker(QThread):
         self._silence_min_dur_s = silence_min_dur_s
         self._custom_keywords = custom_keywords
         self._use_prompt_biasing = use_prompt_biasing
+        self._language = language
         self._cancel_event = threading.Event()
 
     def request_cancel(self) -> None:
@@ -443,6 +445,7 @@ class AlignWorker(QThread):
                 snap_to_silence=self._snap_silence,
                 silence_thresh_db=self._silence_thresh_db,
                 silence_min_dur_s=self._silence_min_dur_s,
+                language=self._language,
             )
 
             total = len(self._tasks)

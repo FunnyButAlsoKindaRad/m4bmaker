@@ -216,6 +216,33 @@ class SttSettingsDialog(QDialog):
             window_box,
         )
 
+        # Audiobook Language
+        self._lang_combo = QComboBox()
+        self._lang_combo.addItem("Auto-Detect", "auto")
+        self._lang_combo.addItem("English", "en")
+        self._lang_combo.addItem("Japanese (日本語)", "ja")
+        self._lang_combo.addItem("German (Deutsch)", "de")
+        self._lang_combo.addItem("French (Français)", "fr")
+        self._lang_combo.addItem("Spanish (Español)", "es")
+        self._lang_combo.addItem("Italian (Italiano)", "it")
+        self._lang_combo.addItem("Chinese (中文)", "zh")
+        saved_lang = str(prefs.get("stt_language") or "auto")
+        lang_idx = self._lang_combo.findData(saved_lang)
+        if lang_idx >= 0:
+            self._lang_combo.setCurrentIndex(lang_idx)
+        else:
+            self._lang_combo.setCurrentIndex(0)
+
+        align_form.addRow(
+            _make_field_label(
+                "Audiobook Language:",
+                "Spoken language of the audiobook.\n"
+                "'Auto-Detect' automatically applies optimal linguistic rules for the detected language.\n\n"
+                "Recommended: Auto-Detect",
+            ),
+            self._lang_combo,
+        )
+
         # Silence snapping
         self._snap_check = QCheckBox("Snap to nearest preceding silence pause")
         self._snap_check.setChecked(
@@ -728,6 +755,7 @@ class SttSettingsDialog(QDialog):
 
         # Reload values into controls
         self._window_slider.setValue(int(prefs.get("stt_window_min") or 3))
+        self._lang_combo.setCurrentIndex(0)
         self._snap_check.setChecked(bool(prefs.get("stt_silence_snap") if prefs.get("stt_silence_snap") is not None else True))
         self._auto_pre_check.setChecked(bool(prefs.get("stt_auto_pre_chapter") if prefs.get("stt_auto_pre_chapter") is not None else True))
         self._pre_title_edit.setText(str(prefs.get("stt_pre_chapter_title") or "Chapter 0"))
@@ -743,6 +771,7 @@ class SttSettingsDialog(QDialog):
 
     def _on_save(self) -> None:
         prefs.set("stt_model", self._selected_model())
+        prefs.set("stt_language", self._lang_combo.currentData() or "auto")
         win_min = self._window_slider.value()
         prefs.set("stt_window_min", win_min)
         prefs.set("stt_search_window_s", float(win_min * 60))
