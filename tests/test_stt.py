@@ -395,6 +395,40 @@ def test_japanese_chapter_search_variants() -> None:
     assert "最終決戦" in variants2
 
 
+    # Japanese subsection with sub_val != main_num (e.g. Chapter 5)
+    variants_sub = get_title_search_variants("第一章～先輩はバニーガール・三", 5)
+    assert "3" in variants_sub
+    assert "三" in variants_sub
+    assert "3." in variants_sub
+    assert "第3節" in variants_sub
+    assert "第三節" in variants_sub
+    assert "先輩はバニーガール" in variants_sub
+    # Crucially, main number '1' must NOT be in variants to prevent false kanji matches
+    assert "1" not in variants_sub
+    assert "一" not in variants_sub
+    assert "第一章" not in variants_sub
+    assert "第1章" not in variants_sub
+
+    # English subsection with sub_val != main_num
+    variants_en_sub = get_title_search_variants("Chapter 1, Part 3", 3)
+    assert "part 3" in variants_en_sub
+    assert "part three" in variants_en_sub
+    assert "section 3" in variants_en_sub
+    assert "3" in variants_en_sub
+    assert "three" in variants_en_sub
+    assert "1" not in variants_en_sub
+    assert "one" not in variants_en_sub
+
+    # Act and scene
+    variants_act = get_title_search_variants("Act 2, Scene 4", 4)
+    assert "scene 4" in variants_act
+    assert "scene four" in variants_act
+    assert "4" in variants_act
+    assert "four" in variants_act
+    assert "2" not in variants_act
+    assert "two" not in variants_act
+
+
 def test_unicode_nfkc_normalization() -> None:
     from m4bmaker.stt.aligner import normalize_text
 
