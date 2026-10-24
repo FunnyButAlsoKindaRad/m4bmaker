@@ -130,6 +130,7 @@ class SttSettingsDialog(QDialog):
         self._download_worker: Optional[ModelDownloadWorker] = None
         self._setup_ui()
         self._refresh_model_combo()
+        self._refresh_adv_custom_combo()
         self._update_model_status()
 
     def _setup_ui(self) -> None:
@@ -180,9 +181,7 @@ class SttSettingsDialog(QDialog):
         self._progress_bar.setObjectName("sttDownloadProgress")
         self._progress_bar.setMinimumHeight(20)
         self._progress_bar.setMaximumHeight(20)
-        self._progress_bar.setTextVisible(True)
-        self._progress_bar.setFormat("%p%")
-        self._progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._progress_bar.setTextVisible(False)
         self._progress_bar.setVisible(False)
         model_layout.addWidget(self._progress_bar)
 
@@ -333,6 +332,29 @@ class SttSettingsDialog(QDialog):
         scan_row.addStretch()
         storage_layout.addLayout(scan_row)
 
+        custom_row = QHBoxLayout()
+        custom_row.addWidget(QLabel("Custom Model Override:"))
+        custom_row.addWidget(
+            InfoIcon(
+                "Select a scanned local model or downloaded Hugging Face model to override the standard model.\n\n"
+                "Leave at 'None (Use Standard Model)' to use the standard preset selected in Standard Settings."
+            )
+        )
+        self._adv_custom_combo = QComboBox()
+        self._adv_custom_combo.currentIndexChanged.connect(self._on_adv_custom_selection_changed)
+        custom_row.addWidget(self._adv_custom_combo, 1)
+
+        self._adv_del_btn = QPushButton("Delete")
+        self._adv_del_btn.setStyleSheet("color: #d9534f;")
+        self._adv_del_btn.clicked.connect(self._on_adv_delete_clicked)
+        self._adv_del_btn.setEnabled(False)
+        custom_row.addWidget(self._adv_del_btn)
+        storage_layout.addLayout(custom_row)
+
+        self._adv_model_status_lbl = QLabel("")
+        self._adv_model_status_lbl.setStyleSheet("color: #777777;")
+        storage_layout.addWidget(self._adv_model_status_lbl)
+
         adv_layout.addWidget(storage_group)
 
         # 2. Custom Hugging Face Model Download
@@ -384,9 +406,7 @@ class SttSettingsDialog(QDialog):
         self._adv_progress_bar.setObjectName("sttDownloadProgress")
         self._adv_progress_bar.setMinimumHeight(20)
         self._adv_progress_bar.setMaximumHeight(20)
-        self._adv_progress_bar.setTextVisible(True)
-        self._adv_progress_bar.setFormat("%p%")
-        self._adv_progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._adv_progress_bar.setTextVisible(False)
         self._adv_progress_bar.setVisible(False)
         hf_layout.addWidget(self._adv_progress_bar)
 
@@ -485,39 +505,20 @@ class SttSettingsDialog(QDialog):
     # ── Model selection and combo management ─────────────────────────────────
 
     def _refresh_model_combo(self, select_key: Optional[str] = None) -> None:
-        """Populate the Active Model dropdown with presets, custom models, and scanned models."""
+        """Populate the Active Model dropdown strictly with preset models (tiny.en, base.en)."""
         self._model_combo.blockSignals(True)
         self._model_combo.clear()
 
-        # 1. Preset models
+        # Preset models only
         for key, info in SUPPORTED_MODELS.items():
             self._model_combo.addItem(f"{key} - {info['description']}", key)
 
-        # 2. Custom models saved in preferences
-        custom_models = list(prefs.get("stt_custom_models") or [])
-        added_keys = set(SUPPORTED_MODELS.keys())
+        target = select_key or str(prefs.get("stt_standard_model") or "")
+        if not target or target not in SUPPORTED_MODELS:
+            cur = str(prefs.get("stt_model") or DEFAULT_MODEL)
+            target = cur if cur in SUPPORTED_MODELS else DEFAULT_MODEL
 
-        # 3. Discovered local models
-        try:
-            scanned = scan_local_models()
-        except Exception:
-            scanned = {}
-
-        all_custom = set(custom_models) | set(scanned.keys())
-        for c_key in sorted(all_custom):
-            clean_name = c_key.split("/")[-1].replace("faster-whisper-", "")
-            if clean_name in added_keys or c_key in added_keys:
-                continue
-            desc = scanned[c_key]["description"] if c_key in scanned else "Custom Model"
-            self._model_combo.addItem(f"{clean_name} - {desc}", c_key)
-            added_keys.add(c_key)
-            added_keys.add(clean_name)
-
-        target = select_key or str(prefs.get("stt_model") or DEFAULT_MODEL)
         idx = self._model_combo.findData(target)
-        if idx < 0:
-            clean_target = target.split("/")[-1].replace("faster-whisper-", "")
-            idx = self._model_combo.findData(clean_target)
         if idx >= 0:
             self._model_combo.setCurrentIndex(idx)
         else:
@@ -526,6 +527,44 @@ class SttSettingsDialog(QDialog):
         self._model_combo.blockSignals(False)
         self._update_model_status()
 
+    def _refresh_adv_custom_combo(self, select_key: Optional[str] = None) -> None:
+        """Populate the Custom Model Override dropdown in the Advanced tab."""
+        self._adv_custom_combo.blockSignals(True)
+        self._adv_custom_combo.clear()
+
+        self._adv_custom_combo.addItem("None (Use Standard Model)", "")
+
+        custom_models = list(prefs.get("stt_custom_models") or [])
+        try:
+            scanned = scan_local_models()
+        except Exception:
+            scanned = {}
+
+        all_custom = sorted(set(custom_models) | set(scanned.keys()))
+        for c_key in all_custom:
+            if c_key in SUPPORTED_MODELS:
+                continue
+            clean_name = c_key.split("/")[-1].replace("faster-whisper-", "")
+            desc = scanned[c_key]["description"] if c_key in scanned else "Custom Model"
+            self._adv_custom_combo.addItem(f"{clean_name} - {desc}", c_key)
+
+        target = select_key
+        if target is None:
+            target = str(prefs.get("stt_custom_model_override") or "")
+            if not target:
+                cur_model = str(prefs.get("stt_model") or "")
+                if cur_model and cur_model not in SUPPORTED_MODELS:
+                    target = cur_model
+
+        idx = self._adv_custom_combo.findData(target)
+        if idx >= 0:
+            self._adv_custom_combo.setCurrentIndex(idx)
+        else:
+            self._adv_custom_combo.setCurrentIndex(0)
+
+        self._adv_custom_combo.blockSignals(False)
+        self._update_adv_custom_status()
+
     def _selected_model(self) -> str:
         data = self._model_combo.currentData()
         return str(data) if data is not None else DEFAULT_MODEL
@@ -533,21 +572,75 @@ class SttSettingsDialog(QDialog):
     def _update_model_status(self) -> None:
         model = self._selected_model()
         downloaded = is_model_downloaded(model)
+        custom_override = (
+            self._adv_custom_combo.currentData()
+            if hasattr(self, "_adv_custom_combo") and self._adv_custom_combo is not None
+            else ""
+        )
+        override_note = f" (Custom override active: {custom_override})" if custom_override else ""
         if downloaded:
             sz = get_installed_model_size_mb(model)
-            self._status_lbl.setText(f"✓ Ready ({sz} MB on disk)")
+            self._status_lbl.setText(f"✓ Ready ({sz} MB on disk){override_note}")
             self._status_lbl.setStyleSheet("color: #4caf50; font-weight: bold;")
             self._dl_btn.setText("Redownload")
             self._del_btn.setEnabled(True)
         else:
             approx = SUPPORTED_MODELS.get(model, {}).get("approx_size_mb", 75)
-            self._status_lbl.setText(f"Not downloaded (~{approx} MB)")
+            self._status_lbl.setText(f"Not downloaded (~{approx} MB){override_note}")
             self._status_lbl.setStyleSheet("color: #777777;")
             self._dl_btn.setText("Download")
             self._del_btn.setEnabled(False)
 
     def _on_model_selection_changed(self) -> None:
         self._update_model_status()
+
+    def _on_adv_custom_selection_changed(self) -> None:
+        self._update_adv_custom_status()
+        self._update_model_status()
+
+    def _update_adv_custom_status(self) -> None:
+        model = self._adv_custom_combo.currentData()
+        if not model:
+            self._adv_model_status_lbl.setText("No custom override active. Using standard preset.")
+            self._adv_model_status_lbl.setStyleSheet("color: #777777;")
+            self._adv_del_btn.setEnabled(False)
+        else:
+            if is_model_downloaded(model):
+                sz = get_installed_model_size_mb(model)
+                self._adv_model_status_lbl.setText(f"✓ Ready ({sz} MB on disk)")
+                self._adv_model_status_lbl.setStyleSheet("color: #4caf50; font-weight: bold;")
+                self._adv_del_btn.setEnabled(True)
+            else:
+                self._adv_model_status_lbl.setText("Model files not found on disk.")
+                self._adv_model_status_lbl.setStyleSheet("color: #d9534f;")
+                self._adv_del_btn.setEnabled(True)
+
+    def _on_adv_delete_clicked(self) -> None:
+        model = self._adv_custom_combo.currentData()
+        if not model:
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Delete Custom Model",
+            f"Are you sure you want to remove the model files for '{model}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm == QMessageBox.StandardButton.Yes:
+            from m4bmaker.stt.aligner import clear_model_cache
+
+            clear_model_cache()
+            delete_model(model)
+            custom_models = list(prefs.get("stt_custom_models") or [])
+            clean = model.split("/")[-1].replace("faster-whisper-", "")
+            if model in custom_models:
+                custom_models.remove(model)
+            if clean in custom_models:
+                custom_models.remove(clean)
+            prefs.set("stt_custom_models", custom_models)
+            if prefs.get("stt_custom_model_override") in (model, clean):
+                prefs.set("stt_custom_model_override", "")
+            self._refresh_adv_custom_combo(select_key="")
+            self._update_model_status()
 
     # ── Clipboard Paste in Repo ID ───────────────────────────────────────────
 
@@ -578,6 +671,7 @@ class SttSettingsDialog(QDialog):
             prefs.set("stt_models_dir", chosen)
             self._dir_edit.setText(chosen)
             self._refresh_model_combo()
+            self._refresh_adv_custom_combo()
 
     def _on_scan_folder_clicked(self) -> None:
         scanned = scan_local_models()
@@ -600,13 +694,13 @@ class SttSettingsDialog(QDialog):
         if added_new > 0:
             prefs.set("stt_custom_models", custom_models)
 
-        self._refresh_model_combo()
+        self._refresh_adv_custom_combo()
         names_str = "\n".join(f"• {name} ({scanned[name]['approx_size_mb']} MB)" for name in scanned)
         QMessageBox.information(
             self,
             "Scan Complete",
             f"Found {count} valid CTranslate2 model(s):\n\n{names_str}\n\n"
-            "They are now available in the Active Model list.",
+            "They are now available in the Custom Model Override list in the Advanced tab.",
         )
 
     # ── Download and Delete Actions ──────────────────────────────────────────
@@ -686,9 +780,10 @@ class SttSettingsDialog(QDialog):
             if model not in custom_models and clean not in custom_models:
                 custom_models.append(clean)
                 prefs.set("stt_custom_models", custom_models)
-
-        self._refresh_model_combo(select_key=model)
-        self._update_model_status()
+            self._refresh_adv_custom_combo(select_key=clean if clean in custom_models else model)
+        else:
+            self._refresh_model_combo(select_key=model)
+            self._update_model_status()
 
         from m4bmaker.gui.worker import ModelWarmupWorker
 
@@ -703,10 +798,11 @@ class SttSettingsDialog(QDialog):
         self._dl_btn.setEnabled(True)
         self._hf_dl_btn.setEnabled(True)
         self._update_model_status()
+        self._update_adv_custom_status()
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Critical)
         box.setWindowTitle("Download Failed")
-        box.setText(f"Could not download model '{self._selected_model()}'.")
+        box.setText("Could not download model.")
         box.setInformativeText(
             "Note: Faster-Whisper models require CTranslate2 format.\n\n"
             f"You can also download files manually into:\n{get_models_dir()}"
@@ -727,15 +823,7 @@ class SttSettingsDialog(QDialog):
 
             clear_model_cache()
             delete_model(model)
-            if model not in SUPPORTED_MODELS:
-                custom_models = list(prefs.get("stt_custom_models") or [])
-                clean = model.split("/")[-1].replace("faster-whisper-", "")
-                if model in custom_models:
-                    custom_models.remove(model)
-                if clean in custom_models:
-                    custom_models.remove(clean)
-                prefs.set("stt_custom_models", custom_models)
-            self._refresh_model_combo()
+            self._refresh_model_combo(select_key=model)
             self._update_model_status()
 
     # ── Reset to Defaults & Save ─────────────────────────────────────────────
@@ -752,6 +840,9 @@ class SttSettingsDialog(QDialog):
             return
 
         prefs.reset_stt_defaults()
+        prefs.set("stt_standard_model", DEFAULT_MODEL)
+        prefs.set("stt_custom_model_override", "")
+        prefs.set("stt_model", DEFAULT_MODEL)
 
         # Reload values into controls
         self._window_slider.setValue(int(prefs.get("stt_window_min") or 3))
@@ -766,11 +857,18 @@ class SttSettingsDialog(QDialog):
         self._min_silence_spin.setValue(int(float(prefs.get("stt_min_silence_s") or 0.3) * 1000))
 
         self._refresh_model_combo(select_key=DEFAULT_MODEL)
+        self._refresh_adv_custom_combo(select_key="")
         self._update_model_status()
         QMessageBox.information(self, "Reset Complete", "Smart Alignment settings have been restored to factory defaults.")
 
     def _on_save(self) -> None:
-        prefs.set("stt_model", self._selected_model())
+        std_model = self._selected_model()
+        prefs.set("stt_standard_model", std_model)
+        adv_custom = self._adv_custom_combo.currentData() or ""
+        prefs.set("stt_custom_model_override", adv_custom)
+        effective_model = adv_custom if adv_custom else std_model
+        prefs.set("stt_model", effective_model)
+
         prefs.set("stt_language", self._lang_combo.currentData() or "auto")
         win_min = self._window_slider.value()
         prefs.set("stt_window_min", win_min)

@@ -333,10 +333,23 @@ def test_stt_dialog_ui_components(qtbot=None) -> None:
     app = QApplication.instance() or QApplication([])
     dlg = SttSettingsDialog()
 
+    # Active model dropdown strictly contains ONLY tiny.en and base.en
+    assert dlg._model_combo.count() == 2
+    model_keys = [dlg._model_combo.itemData(i) for i in range(dlg._model_combo.count())]
+    assert model_keys == ["tiny.en", "base.en"]
+
+    # Download progress bars have text hidden (no centered percentage number)
     assert dlg._progress_bar.objectName() == "sttDownloadProgress"
     assert dlg._progress_bar.minimumHeight() == 20
+    assert not dlg._progress_bar.isTextVisible()
     assert dlg._adv_progress_bar.objectName() == "sttDownloadProgress"
     assert dlg._adv_progress_bar.minimumHeight() == 20
+    assert not dlg._adv_progress_bar.isTextVisible()
+
+    # Advanced tab custom model override
+    assert hasattr(dlg, "_adv_custom_combo")
+    assert dlg._adv_custom_combo.itemData(0) == ""
+    assert "None" in dlg._adv_custom_combo.itemText(0)
 
     dlg._on_download_progress(0.75, "Downloading model.bin...")
     assert dlg._progress_bar.value() == 75
