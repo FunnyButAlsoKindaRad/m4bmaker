@@ -333,10 +333,10 @@ def test_stt_dialog_ui_components(qtbot=None) -> None:
     app = QApplication.instance() or QApplication([])
     dlg = SttSettingsDialog()
 
-    # Active model dropdown strictly contains ONLY tiny.en and base.en
-    assert dlg._model_combo.count() == 2
-    model_keys = [dlg._model_combo.itemData(i) for i in range(dlg._model_combo.count())]
-    assert model_keys == ["tiny.en", "base.en"]
+    # Active model dropdown starts with tiny.en and base.en by default
+    assert dlg._model_combo.count() >= 2
+    assert dlg._model_combo.itemData(0) == "tiny.en"
+    assert dlg._model_combo.itemData(1) == "base.en"
 
     # Download progress bars have text hidden (no centered percentage number)
     assert dlg._progress_bar.objectName() == "sttDownloadProgress"
@@ -345,11 +345,6 @@ def test_stt_dialog_ui_components(qtbot=None) -> None:
     assert dlg._adv_progress_bar.objectName() == "sttDownloadProgress"
     assert dlg._adv_progress_bar.minimumHeight() == 20
     assert not dlg._adv_progress_bar.isTextVisible()
-
-    # Advanced tab custom model override
-    assert hasattr(dlg, "_adv_custom_combo")
-    assert dlg._adv_custom_combo.itemData(0) == ""
-    assert "None" in dlg._adv_custom_combo.itemText(0)
 
     dlg._on_download_progress(0.75, "Downloading model.bin...")
     assert dlg._progress_bar.value() == 75
@@ -485,4 +480,23 @@ def test_sanitize_model_config(tmp_path: Path) -> None:
 
     sanitized = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
     assert sanitized["alignment_heads"] == [[0, 0], [1, 0]]
+
+
+def test_scanned_models_listed_under_base_en() -> None:
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QApplication
+    from m4bmaker.gui.stt_dialog import SttSettingsDialog
+
+    app = QApplication.instance() or QApplication([])
+    with patch("m4bmaker.gui.stt_dialog.scan_local_models") as mock_scan:
+        mock_scan.return_value = {
+            "custom-whisper-v2": {"description": "Local Model (500 MB)"}
+        }
+        dlg = SttSettingsDialog()
+        assert dlg._model_combo.count() == 3
+        assert dlg._model_combo.itemData(0) == "tiny.en"
+        assert dlg._model_combo.itemData(1) == "base.en"
+        assert dlg._model_combo.itemData(2) == "custom-whisper-v2"
+        assert "custom-whisper-v2" in dlg._model_combo.itemText(2)
+        dlg.close()
 

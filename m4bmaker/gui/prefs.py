@@ -28,8 +28,6 @@ _DEFAULTS: dict[str, object] = {
     "check_for_updates": True,
     "google_books_api_key": "",
     "stt_model": "tiny.en",
-    "stt_standard_model": "tiny.en",
-    "stt_custom_model_override": "",
     "stt_window_min": 3,
     "stt_search_window_s": 180.0,
     "stt_silence_snap": True,
