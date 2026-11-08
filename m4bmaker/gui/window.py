@@ -55,12 +55,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -72,6 +74,7 @@ from m4bmaker.gui.icons import dark_mode_icon
 from m4bmaker.gui.styles import get_stylesheet
 from m4bmaker.gui.widgets import ChapterTable, CoverWidget, FolderDropZone
 from m4bmaker.gui.worker import (
+    AlignWorker,
     ConvertWorker,
     LoadM4bWorker,
     LoadWorker,
@@ -160,6 +163,7 @@ class MainWindow(QMainWindow):
         self._preflight_sample_rate: Optional[int] = None
         self._save_worker: Optional[SaveChaptersWorker] = None
         self._split_worker: Optional[SplitWorker] = None
+        self._align_worker: Optional[AlignWorker] = None
         # Generation counter for load workers: each load stamps a generation id,
         # and result slots ignore payloads from a superseded generation so a slow
         # scan of folder A cannot populate the UI under folder B's path (H5).
@@ -190,6 +194,7 @@ class MainWindow(QMainWindow):
         self._update_checker.update_available.connect(self._show_update_bar)
         if _prefs_get("check_for_updates"):
             self._update_checker.start()
+        self._warmup_stt_model_background()
 
     # ── Menu bar ──────────────────────────────────────────────────────────────
 
@@ -250,11 +255,15 @@ class MainWindow(QMainWindow):
         self._dark_action.triggered.connect(self._toggle_dark_mode)
         view_menu.addAction(self._dark_action)
 
-        # Help menu
+        # Tools menu
         tools_menu = mb.addMenu("Tools")
         api_prefs_action = QAction("API Settings...", self)
         api_prefs_action.triggered.connect(self._on_api_prefs)
         tools_menu.addAction(api_prefs_action)
+
+        stt_prefs_action = QAction("Smart Alignment Settings\u2026", self)
+        stt_prefs_action.triggered.connect(self._on_stt_settings)
+        tools_menu.addAction(stt_prefs_action)
 
         help_menu = mb.addMenu("Help")
 
@@ -276,6 +285,15 @@ class MainWindow(QMainWindow):
         self._updates_action.setChecked(bool(_prefs_get("check_for_updates")))
         self._updates_action.toggled.connect(self._toggle_update_check)
         help_menu.addAction(self._updates_action)
+
+        help_menu.addSeparator()
+        view_log_act = QAction("View Log File", self)
+        view_log_act.triggered.connect(self._on_view_log)
+        help_menu.addAction(view_log_act)
+
+        open_log_dir_act = QAction("Open Logs Folder", self)
+        open_log_dir_act.triggered.connect(self._on_open_logs_dir)
+        help_menu.addAction(open_log_dir_act)
 
 
 
@@ -316,6 +334,12 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_ch_next_btn"):
                 self._ch_next_btn.setIcon(load_svg_icon(NEXT_CHAPTER_SVG, color, 20))
                 self._ch_next_btn.setIconSize(QSize(20, 20))
+        if hasattr(self, "_smart_align_btn"):
+            from m4bmaker.gui.icons import load_svg_icon
+            from m4bmaker.gui.svg_icons import WAND_SVG
+            self._smart_align_btn.setIcon(load_svg_icon(WAND_SVG, "#f0f0f0" if self._dark_mode else "#1a1a1a", 16))
+        if hasattr(self, "_chapter_table"):
+            self._chapter_table.set_dark_mode(self._dark_mode)
 
     def _on_job_updated(self, _job_id: object) -> None:
         self._update_controls()
@@ -781,6 +805,34 @@ class MainWindow(QMainWindow):
         self._ch_remove_btn.clicked.connect(self._on_chapter_remove)
         ch_tools_row.addWidget(self._ch_remove_btn)
         
+        # Smart Alignment wand button with popup menu
+        from m4bmaker.gui.icons import load_svg_icon
+        from m4bmaker.gui.svg_icons import WAND_SVG
+        wand_color = "#f0f0f0" if self._dark_mode else "#1a1a1a"
+
+        self._smart_align_btn = QToolButton()
+        self._smart_align_btn.setIcon(load_svg_icon(WAND_SVG, wand_color, 16))
+        self._smart_align_btn.setText("Smart Align")
+        self._smart_align_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._smart_align_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self._smart_align_btn.setToolTip("Align chapter timestamps to spoken audio using Speech-to-Text")
+        self._smart_align_btn.setEnabled(False)
+        self._smart_align_btn.clicked.connect(self._on_smart_align_selected)
+
+        wand_menu = QMenu(self._smart_align_btn)
+        act_sel = wand_menu.addAction("Smart Align Selected")
+        act_sel.triggered.connect(self._on_smart_align_selected)
+        act_all = wand_menu.addAction("Smart Align All Chapters\u2026")
+        act_all.triggered.connect(self._on_smart_align_all)
+        wand_menu.addSeparator()
+        act_cfg = wand_menu.addAction("Smart Alignment Settings\u2026")
+        act_cfg.triggered.connect(self._on_stt_settings)
+        self._smart_align_btn.setMenu(wand_menu)
+        ch_tools_row.addWidget(self._smart_align_btn)
+
+        self._chapter_table.smart_align_requested.connect(self._on_smart_align_selected)
+        self._chapter_table.chapter_reverted.connect(self._on_chapter_reverted)
+
         ch_tools_row.addSpacing(12)
         ch_tools_row.addWidget(QLabel("Offset (sec):"))
         self._offset_spin = QDoubleSpinBox()
@@ -1332,6 +1384,7 @@ class MainWindow(QMainWindow):
         self._progress_bar.setValue(0)
         self._progress_bar.setVisible(False)
         self._apply_book_to_ui(book)
+        self._warmup_stt_model_background()
         # Start preflight analysis in the background
         self._preflight_worker = PreflightWorker(book.files)
         self._preflight_worker.result_ready.connect(self._on_preflight_finished)
@@ -1364,6 +1417,7 @@ class MainWindow(QMainWindow):
         self._progress_bar.setValue(0)
         self._progress_bar.setVisible(False)
         self._apply_book_to_ui(book)
+        self._warmup_stt_model_background()
 
     def _on_preflight_error(self, msg: str) -> None:
         """M2: surface preflight probe failures in the Analysis panel."""
@@ -1632,11 +1686,16 @@ class MainWindow(QMainWindow):
         """Rebuild chapter indices and start_times from self._chapter_durations."""
         if self._book is None:
             return
+        has_intro_zero = (
+            len(self._book.chapters) > 0
+            and self._book.chapters[0].index == 0
+        )
+        start_idx = 0 if has_intro_zero else 1
         cursor = 0.0
         for i, (ch, dur) in enumerate(
             zip(self._book.chapters, self._chapter_durations)
         ):
-            ch.index = i + 1
+            ch.index = i + start_idx
             ch.start_time = cursor
             cursor += dur
         self._book.total_duration = cursor
@@ -1683,6 +1742,10 @@ class MainWindow(QMainWindow):
         self._ch_remove_btn.setVisible(show_remove)
         self._ch_merge_btn.setVisible(has_book)
         self._ch_add_btn.setVisible(in_edit)
+        if hasattr(self, "_smart_align_btn"):
+            self._smart_align_btn.setEnabled(
+                has_book and bool(self._book and self._book.chapters) and not getattr(self, "_align_busy", False)
+            )
         if not has_book:
             self._ch_merge_btn.setEnabled(False)
             return
@@ -1863,8 +1926,13 @@ class MainWindow(QMainWindow):
                 self._book.chapters[0].start_time = 0.0
         # Renumber indices only — start_times of surviving chapters (besides
         # a new row 0) are left exactly as they were.
+        has_intro_zero = (
+            len(self._book.chapters) > 0
+            and self._book.chapters[0].index == 0
+        )
+        start_idx = 0 if has_intro_zero else 1
         for i, ch in enumerate(self._book.chapters):
-            ch.index = i + 1
+            ch.index = i + start_idx
 
     def _on_chapter_merge(self) -> None:
         """Merge selected consecutive rows into a single chapter.
@@ -2198,3 +2266,329 @@ class MainWindow(QMainWindow):
         else:
             box.setInformativeText("Press Ctrl+C to copy this error.")
         box.exec()
+
+    # ── Smart Chapter Alignment ───────────────────────────────────────────────
+
+    def _on_stt_settings(self) -> None:
+        """Open the Speech-to-Text configuration dialog."""
+        from m4bmaker.gui.stt_dialog import SttSettingsDialog
+
+        dlg = SttSettingsDialog(self)
+        dlg.exec()
+
+    def _on_chapter_reverted(self, row: int, old_start_time_s: float) -> None:
+        """Handle undo button click in ChapterTable."""
+        if self._book is None or row >= len(self._book.chapters):
+            return
+        self._book.chapters[row].start_time = old_start_time_s
+
+        # If Chapter 1 was reverted back to 0:00:00, and an auto-created Chapter 0 exists,
+        # remove Chapter 0 so there isn't a 0-second ghost chapter.
+        if (
+            row == 1
+            and old_start_time_s <= 0.001
+            and len(self._book.chapters) > 1
+            and self._book.chapters[0].index == 0
+        ):
+            del self._book.chapters[0]
+            self._chapter_table.removeRow(0)
+            self._chapter_table.shift_revert_times(-1)
+            self._sync_times_from_table()
+            self._set_status("Reverted Chapter 1 to 0:00:00 and removed lead-in chapter.")
+            return
+
+        self._sync_times_from_table()
+        self._set_status(f"Reverted chapter {row + 1} to original timestamp.")
+
+    def _on_smart_align_selected(self) -> None:
+        """Align currently selected chapter(s), or current row."""
+        if not self._book or not self._book.chapters:
+            return
+        selected = sorted(
+            {idx.row() for idx in self._chapter_table.selectionModel().selectedRows()}
+        )
+        if not selected:
+            row = self._chapter_table.currentRow()
+            selected = [row] if row >= 0 else [0]
+        self._start_smart_align(selected)
+
+    def _on_smart_align_all(self) -> None:
+        """Align all chapters in the book."""
+        if not self._book or not self._book.chapters:
+            return
+        self._start_smart_align(list(range(len(self._book.chapters))))
+
+    def _start_smart_align(self, row_indices: list[int]) -> None:
+        """Prepare tasks and launch AlignWorker."""
+        if getattr(self, "_align_busy", False) or (self._align_worker is not None and self._align_worker.isRunning()):
+            self._set_status("Smart alignment is already in progress...")
+            return
+
+        from m4bmaker.stt.models import (
+            DEFAULT_MODEL,
+            is_model_downloaded,
+        )
+
+        model_name = str(_prefs_get("stt_model") or DEFAULT_MODEL)
+        if not is_model_downloaded(model_name):
+            reply = QMessageBox.question(
+                self,
+                "Model Not Downloaded",
+                f"The STT model '{model_name}' has not been downloaded yet.\n\n"
+                "Would you like to open Smart Alignment Settings now to download it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._on_stt_settings()
+            return
+
+        self._align_busy = True
+        self._smart_align_btn.setEnabled(False)
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setVisible(True)
+        self._set_status(f"Starting alignment with {model_name}...")
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.processEvents()
+
+        self._sync_titles_from_table()
+        self._sync_times_from_table()
+
+        tasks = []
+        for r in row_indices:
+            if r >= len(self._book.chapters):
+                continue
+            ch = self._book.chapters[r]
+            # Chapter 0 is anchored to 0:00:00 as the lead-in chapter; skip aligning it
+            if ch.index == 0 and ch.start_time == 0.0:
+                continue
+            src_file = None
+            file_dur = None
+            if self._mode == "edit":
+                src_file = (
+                    ch.source_file
+                    if (ch.source_file and Path(ch.source_file).is_file())
+                    else (
+                        self._book.files[0]
+                        if (self._book.files and Path(self._book.files[0]).is_file())
+                        else self._folder_zone.path()
+                    )
+                )
+                file_dur = self._m4b_total_duration or self._book.total_duration
+            else:
+                if ch.source_file is not None:
+                    src_file = ch.source_file
+                    idx = (
+                        self._book.files.index(ch.source_file)
+                        if ch.source_file in self._book.files
+                        else -1
+                    )
+                    if idx >= 0 and idx < len(self._book.file_durations):
+                        file_dur = self._book.file_durations[idx]
+                else:
+                    # Map start_time to source file in book.files
+                    if self._book.file_durations:
+                        cursor = 0.0
+                        for i, dur in enumerate(self._book.file_durations):
+                            if cursor + dur > ch.start_time or i == len(self._book.file_durations) - 1:
+                                src_file = self._book.files[i]
+                                file_dur = dur
+                                break
+                            cursor += dur
+
+            if src_file is None or not Path(src_file).is_file():
+                continue
+
+            tasks.append({
+                "row": r,
+                "index": ch.index,
+                "title": ch.title,
+                "file": Path(src_file),
+                "estimated_s": ch.start_time,
+                "file_dur": file_dur,
+                "custom_cue": self._chapter_table.get_custom_cue(r),
+            })
+
+        if not tasks:
+            self._align_busy = False
+            self._progress_bar.setVisible(False)
+            self._update_chapter_buttons()
+            self._set_status("No valid audio files found for alignment.")
+            return
+
+        search_win_min = _prefs_get("stt_window_min")
+        if search_win_min is not None:
+            search_win = float(search_win_min) * 60.0
+        else:
+            search_win = float(_prefs_get("stt_search_window_s") or 180.0)
+
+        snap_silence = bool(
+            _prefs_get("stt_silence_snap")
+            if _prefs_get("stt_silence_snap") is not None
+            else (_prefs_get("stt_snap_silence") if _prefs_get("stt_snap_silence") is not None else True)
+        )
+        silence_thresh = float(_prefs_get("stt_noise_db") or _prefs_get("stt_silence_thresh_db") or -35.0)
+        silence_min_dur = float(_prefs_get("stt_min_silence_s") or _prefs_get("stt_silence_min_dur_s") or 0.3)
+
+        self._set_status(f"Aligning {len(tasks)} chapter(s) with {model_name}...")
+
+        custom_kw_str = str(_prefs_get("stt_heading_keywords") or "")
+        custom_keywords = [k.strip() for k in custom_kw_str.split(",") if k.strip()] if custom_kw_str else None
+        prompt_biasing = bool(
+            _prefs_get("stt_prompt_biasing") if _prefs_get("stt_prompt_biasing") is not None else True
+        )
+        stt_lang = str(_prefs_get("stt_language") or "auto")
+
+        self._align_worker = AlignWorker(
+            tasks=tasks,
+            model_name=model_name,
+            search_window_s=search_win,
+            snap_silence=snap_silence,
+            silence_thresh_db=silence_thresh,
+            silence_min_dur_s=silence_min_dur,
+            custom_keywords=custom_keywords,
+            use_prompt_biasing=prompt_biasing,
+            language=stt_lang,
+        )
+        self._align_worker.progress.connect(self._on_progress)
+        self._align_worker.chapter_aligned.connect(self._on_chapter_aligned)
+        self._align_worker.result_ready.connect(self._on_align_all_finished)
+        self._align_worker.cancelled.connect(self._on_align_cancelled)
+        self._align_worker.error.connect(self._on_align_error)
+        self._align_worker.finished.connect(self._on_align_worker_finished)
+        self._align_worker.start()
+
+    def _on_align_worker_finished(self) -> None:
+        """Safely clean up AlignWorker after its thread has completely terminated."""
+        self._align_busy = False
+        self._progress_bar.setVisible(False)
+        self._update_chapter_buttons()
+        if self._align_worker is not None:
+            self._align_worker.deleteLater()
+            self._align_worker = None
+
+    def _on_chapter_aligned(self, result: object) -> None:
+        """Handle individual chapter alignment result."""
+        from m4bmaker.stt.aligner import AlignmentResult
+
+        if not isinstance(result, AlignmentResult) or not result.success:
+            return
+
+        row = result.row if result.row is not None else (result.chapter_index - 1)
+        if self._book and 0 <= row < len(self._book.chapters):
+            old_time = self._book.chapters[row].start_time
+            self._book.chapters[row].start_time = result.aligned_time_s
+            self._chapter_table.mark_chapter_aligned(row, result.aligned_time_s, old_time)
+            self._sync_times_from_table()
+
+    def _on_align_all_finished(self, results: list) -> None:
+        succ = sum(1 for r in results if getattr(r, "success", False))
+        total = len(results)
+        if succ == 0 and total > 0:
+            first_err = getattr(results[0], "error_message", "Speech match not found")
+            self._set_status(f"Alignment completed: 0/{total} aligned ({first_err}).")
+        else:
+            self._set_status(f"Smart Alignment complete: {succ}/{total} chapter(s) aligned.")
+
+        # Check if pre-chapter (e.g. Chapter 0) should be created for lead-in audio
+        self._check_and_create_pre_chapter()
+
+    def _check_and_create_pre_chapter(self) -> None:
+        """If Chapter 1 starts after threshold with no chapter before it, create Chapter 0 at 00:00:00."""
+        auto_pre = _prefs_get("stt_auto_pre_chapter")
+        if auto_pre is None:
+            auto_pre = True
+        if not auto_pre:
+            return
+
+        if not self._book or not self._book.chapters:
+            return
+
+        threshold_s = float(_prefs_get("stt_pre_chapter_threshold_s") or 3.0)
+        pre_title = str(_prefs_get("stt_pre_chapter_title") or "Chapter 0").strip()
+        if not pre_title:
+            pre_title = "Chapter 0"
+
+        first_ch = self._book.chapters[0]
+        # Only create if the first chapter starts at or after threshold
+        if first_ch.start_time < threshold_s:
+            return
+
+        from m4bmaker.models import Chapter
+        from m4bmaker.gui.widgets import _ms_to_display
+
+        lead_duration = first_ch.start_time
+        pre_ch = Chapter(
+            index=0,
+            start_time=0.0,
+            title=pre_title,
+            source_file=first_ch.source_file,
+        )
+        self._book.chapters.insert(0, pre_ch)
+
+        # Update table and shift existing undo buttons
+        self._chapter_table.prepend_pre_chapter(pre_title, ch_index=0)
+        self._sync_times_from_table()
+        time_str = _ms_to_display(int(lead_duration * 1000))
+        self._set_status(
+            f"Created '{pre_title}' (0:00:00 \u2013 {time_str}) before Chapter 1."
+        )
+
+    def _on_align_cancelled(self) -> None:
+        self._align_busy = False
+        self._progress_bar.setVisible(False)
+        self._update_chapter_buttons()
+        self._set_status("Smart Alignment cancelled.")
+
+    def _on_align_error(self, err: str) -> None:
+        self._align_busy = False
+        self._progress_bar.setVisible(False)
+        self._update_chapter_buttons()
+        self._set_status("Smart Alignment error.")
+        if self.isVisible():
+            QMessageBox.critical(self, "Smart Alignment Error", err)
+
+    def _warmup_stt_model_background(self) -> None:
+        """Silently preload the active STT model in the background so alignment starts instantly."""
+        from m4bmaker.gui.worker import ModelWarmupWorker
+        from m4bmaker.stt.models import DEFAULT_MODEL, is_model_downloaded
+
+        model_name = str(_prefs_get("stt_model") or DEFAULT_MODEL)
+        if is_model_downloaded(model_name):
+            if getattr(self, "_warmup_worker", None) is not None and self._warmup_worker.isRunning():
+                return
+            self._warmup_worker = ModelWarmupWorker(model_name)
+            self._warmup_worker.finished.connect(lambda: setattr(self, "_warmup_worker", None))
+            self._warmup_worker.start()
+
+    def _on_view_log(self) -> None:
+        """Open the active log file in the default text viewer."""
+        from m4bmaker.logging_config import get_log_file_path
+
+        log_file = get_log_file_path()
+        if log_file.is_file():
+            try:
+                import os
+
+                os.startfile(log_file)
+            except Exception as exc:
+                QMessageBox.warning(self, "Logs", f"Could not open log file:\n{exc}")
+        else:
+            QMessageBox.information(
+                self, "Logs", f"No log file has been created yet at:\n{log_file}"
+            )
+
+    def _on_open_logs_dir(self) -> None:
+        """Open the folder containing application logs in File Explorer."""
+        from m4bmaker.logging_config import get_log_file_path
+
+        log_dir = get_log_file_path().parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            import os
+
+            os.startfile(log_dir)
+        except Exception as exc:
+            QMessageBox.warning(self, "Logs", f"Could not open logs folder:\n{exc}")
+

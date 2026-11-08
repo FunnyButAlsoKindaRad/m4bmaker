@@ -46,9 +46,13 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
+
+from m4bmaker.gui.icons import load_svg_icon
+from m4bmaker.gui.svg_icons import UNDO_SVG
 
 from m4bmaker.cover import download_cover
 from m4bmaker.errors import M4BError
@@ -612,7 +616,9 @@ def _parse_time_input(text: str) -> "int | None":
 
 class ChapterTable(QTableWidget):
     align_to_player_requested = Signal()
-    """Flat editable chapter table: # | Time | Title.
+    smart_align_requested = Signal()
+    chapter_reverted = Signal(int, float)  # (row, old_start_time_s)
+    """Flat editable chapter table: # | Time | Title | Undo.
 
     Keyboard behaviour
     ------------------
@@ -625,21 +631,35 @@ class ChapterTable(QTableWidget):
     Right-click context menu provides bulk editing tools.
     """
 
-    COL_NUM, COL_TIME, COL_TITLE = 0, 1, 2
+    COL_NUM, COL_TIME, COL_TITLE, COL_UNDO = 0, 1, 2, 3
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(0, 3, parent)
+        super().__init__(0, 4, parent)
         self._undo_stack = QUndoStack(self)
+        self._revert_times: dict[int, float] = {}  # row -> original start_time_s
+        self._custom_cues: dict[int, str] = {}  # row -> custom alignment cue phrase
+        self._dark_mode = False
         self._setup()
 
+    def set_dark_mode(self, dark: bool) -> None:
+        """Update icon colors on existing in-row undo buttons."""
+        self._dark_mode = dark
+        icon_color = "#f0f0f0" if dark else "#1a1a1a"
+        for r in range(self.rowCount()):
+            btn = self.cellWidget(r, self.COL_UNDO)
+            if isinstance(btn, QToolButton):
+                btn.setIcon(load_svg_icon(UNDO_SVG, icon_color, 14))
+
     def _setup(self) -> None:
-        self.setHorizontalHeaderLabels(["#", "Time", "Title"])
+        self.setHorizontalHeaderLabels(["#", "Time", "Title", ""])
         hh = self.horizontalHeader()
         hh.setSectionResizeMode(self.COL_NUM, QHeaderView.ResizeMode.Fixed)
         hh.setSectionResizeMode(self.COL_TIME, QHeaderView.ResizeMode.Fixed)
         hh.setSectionResizeMode(self.COL_TITLE, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(self.COL_UNDO, QHeaderView.ResizeMode.Fixed)
         self.setColumnWidth(self.COL_NUM, 48)
         self.setColumnWidth(self.COL_TIME, 90)
+        self.setColumnWidth(self.COL_UNDO, 32)
 
         self.verticalHeader().setVisible(False)
         self.setAlternatingRowColors(True)
@@ -663,6 +683,8 @@ class ChapterTable(QTableWidget):
     def populate(self, chapters: list[Any]) -> None:
         """Replace table contents with *chapters*."""
         self._undo_stack.clear()
+        self._revert_times.clear()
+        self._custom_cues.clear()
         self.setRowCount(0)
         for ch in chapters:
             row = self.rowCount()
@@ -695,6 +717,121 @@ class ChapterTable(QTableWidget):
                 | Qt.ItemFlag.ItemIsEditable
             )
             self.setItem(row, self.COL_TITLE, title_item)
+
+            # Column 3 — Undo button placeholder
+            undo_item = QTableWidgetItem("")
+            undo_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.setItem(row, self.COL_UNDO, undo_item)
+
+    def mark_chapter_aligned(self, row: int, new_time_s: float, old_time_s: float) -> None:
+        """Update chapter row start time from smart alignment and add an in-row undo button."""
+        if row < 0 or row >= self.rowCount():
+            return
+        # Store original time for reversion if not already stored
+        if row not in self._revert_times:
+            self._revert_times[row] = old_time_s
+
+        ms = int(new_time_s * 1000)
+        self._do_set_time(row, ms)
+
+        # Place undo tool button in COL_UNDO
+        btn = QToolButton(self)
+        btn.setToolTip(f"Revert to pre-aligned time ({_ms_to_display(int(old_time_s * 1000))})")
+        icon_color = "#f0f0f0" if self._dark_mode else "#1a1a1a"
+        btn.setIcon(load_svg_icon(UNDO_SVG, icon_color, 14))
+        btn.setStyleSheet(
+            "QToolButton { border: none; background: transparent; padding: 2px; border-radius: 3px; }"
+            "QToolButton:hover { background: rgba(128, 128, 128, 0.25); }"
+        )
+        btn.clicked.connect(lambda checked=False, b=btn: self._on_revert_btn_clicked(b))
+        self.setCellWidget(row, self.COL_UNDO, btn)
+
+    def _on_revert_btn_clicked(self, btn: QToolButton) -> None:
+        for r in range(self.rowCount()):
+            if self.cellWidget(r, self.COL_UNDO) is btn:
+                self._revert_chapter(r)
+                break
+
+    def prepend_pre_chapter(self, title: str, ch_index: int = 0) -> None:
+        """Prepend Chapter 0 at row 0 (start time 0:00:00.000) and shift undo states."""
+        self._revert_times = {r + 1: t for r, t in self._revert_times.items()}
+        self._custom_cues = {r + 1: c for r, c in self._custom_cues.items()}
+        self.insertRow(0)
+
+        # Column 0 — chapter number (read-only)
+        n = QTableWidgetItem(str(ch_index))
+        n.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+        n.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        n.setForeground(QColor(_INK_MUTED))
+        self.setItem(0, self.COL_NUM, n)
+
+        # Column 1 — start time (0:00:00.000)
+        ti = QTableWidgetItem("0:00:00.000")
+        ti.setFlags(
+            Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsEditable
+        )
+        ti.setForeground(QColor(_INK_MUTED))
+        ti.setData(Qt.ItemDataRole.UserRole, 0)
+        self.setItem(0, self.COL_TIME, ti)
+
+        # Column 2 — title (editable)
+        title_item = QTableWidgetItem(title)
+        title_item.setFlags(
+            Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsEditable
+        )
+        self.setItem(0, self.COL_TITLE, title_item)
+
+        # Column 3 — Undo button placeholder
+        undo_item = QTableWidgetItem("")
+        undo_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+        self.setItem(0, self.COL_UNDO, undo_item)
+
+    def shift_revert_times(self, delta: int) -> None:
+        """Shift row indices in _revert_times by delta (e.g. -1 when row 0 is removed)."""
+        new_times = {}
+        for r, t in self._revert_times.items():
+            new_r = r + delta
+            if new_r >= 0:
+                new_times[new_r] = t
+        self._revert_times = new_times
+        new_cues = {}
+        for r, c in self._custom_cues.items():
+            new_r = r + delta
+            if new_r >= 0:
+                new_cues[new_r] = c
+        self._custom_cues = new_cues
+
+    def _revert_chapter(self, row: int) -> None:
+        """Revert chapter at row to its pre-alignment timestamp."""
+        if row not in self._revert_times:
+            return
+        old_time_s = self._revert_times.pop(row)
+        old_ms = int(old_time_s * 1000)
+        self._do_set_time(row, old_ms)
+        self.removeCellWidget(row, self.COL_UNDO)
+        self.chapter_reverted.emit(row, old_time_s)
+
+    def has_revert_history(self, row: int) -> bool:
+        return row in self._revert_times
+
+    def get_custom_cue(self, row: int) -> Optional[str]:
+        return self._custom_cues.get(row)
+
+    def set_custom_cue(self, row: int, cue: str) -> None:
+        if cue and cue.strip():
+            self._custom_cues[row] = cue.strip()
+            item = self.item(row, self.COL_TITLE)
+            if item:
+                item.setToolTip(f'Alignment Cue: "{cue.strip()}"')
+        else:
+            self._custom_cues.pop(row, None)
+            item = self.item(row, self.COL_TITLE)
+            if item:
+                item.setToolTip("")
 
     def highlight_playing_chapter(self, row: int) -> None:
         """Highlight the currently playing chapter."""
@@ -796,6 +933,8 @@ class ChapterTable(QTableWidget):
 
     def _show_context_menu(self, pos: QPoint) -> None:
         menu = QMenu(self)
+        menu.addAction("Smart Align Selected (Speech-to-Text)…", self.smart_align_requested.emit)
+        menu.addAction("Set Alignment Cue Phrase…", self._set_custom_cue_dialog)
         menu.addAction("Align all chapters to player position", self.align_to_player_requested.emit)
         menu.addSeparator()
         menu.addAction("Find / Replace…", self._find_replace)
@@ -931,6 +1070,21 @@ class ChapterTable(QTableWidget):
         after = self._snapshot_titles()
         if before != after:
             self._undo_stack.push(_TitlesCommand(self, before, after))
+
+    def _set_custom_cue_dialog(self) -> None:
+        rows = self._selected_rows()
+        if not rows:
+            return
+        initial = self._custom_cues.get(rows[0], "") if len(rows) == 1 else ""
+        text, ok = QInputDialog.getText(
+            self,
+            "Set Alignment Cue Phrase",
+            "Custom phrase to listen for (leave empty to use chapter title):",
+            text=initial,
+        )
+        if ok:
+            for r in rows:
+                self.set_custom_cue(r, text)
 
     def _clear_titles(self) -> None:
         before = self._snapshot_titles()

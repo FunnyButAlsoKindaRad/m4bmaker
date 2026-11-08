@@ -11,6 +11,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-11-08
+
+### Added
+
+- **Smart Chapter Alignment with local Speech-to-Text (Faster-Whisper)**:
+  Automatically locates spoken chapter headings in the audiobook audio and aligns
+  chapter boundary timestamps with millisecond accuracy using offline CTranslate2 models.
+  - **Bundled Model Presets**: Built-in support and direct streaming download for
+    `tiny.en` (~75 MB) and `base.en` (~145 MB) without requiring Hugging Face API keys or tokens.
+  - **Advanced Custom Models & Hugging Face Downloader**: Direct download and pre-validation
+    of any Hugging Face CTranslate2 Whisper model, plus local models directory scanning.
+  - **Dynamic Active Model Selection**: Default view stays clean with standard presets;
+    any discovered or downloaded local models are dynamically detected and listed under `base.en`.
+  - **Pre-Chapter Lead-in Handling**: Automatically generates a configurable Chapter 0
+    (or custom title) when opening audio contains intro/credits prior to Chapter 1.
+  - **Multilingual & Japanese Audiobook Support**:
+    - Automatic handling of Japanese chapter counters (章, 節, 話, 部, 幕, 巻)
+      and Kanji numeral parsing (一, 二, 三...).
+    - Unicode NFKC normalization and subsection number extraction.
+    - Automatic Mel-filter shape fix (128-mel vs 80-mel) preventing crashes across Whisper variants.
+    - Sanitization of corrupted alignment heads in distilled models (e.g. kotoba-whisper, distil-whisper).
+  - **Global Audible Regional Metadata Scraper**: Fetch metadata and chapter names from any
+    regional Audible marketplace (.com, .co.jp, .de, .co.uk, etc.) by ASIN or URL.
+  - **Non-Destructive Timestamp Adjustments**: Each chapter row features a one-click undo/revert
+    button to restore original pre-alignment timestamps at any time.
+  - **Background Model Warmup & In-Memory Caching**: Eliminates UI lag when starting alignment.
+  - **Logging System**: Full diagnostic logging to `m4bmaker.log` for troubleshooting.
+
+### Fixed
+
+- **Encoder Stream Logging**: Implemented `isatty` on the stream logger to prevent encoding freezes.
+- **Audio Alignment Audio Decoding**: Raw PCM float32 extraction bypasses PyAV container metadata errors.
+
+---
+
 ## [1.1.1] - 2026-08-23
 
 ### Fixed
